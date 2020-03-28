@@ -1,0 +1,58 @@
+---
+title: "Ingest and Visualize"
+output: html_notebook
+---
+
+```{r setup}
+library(dplyr)
+library(magrittr)
+library(readr)
+library(lubridate)
+library(ggplot2)
+library(tidyr)
+```
+
+```{r loaddata}
+confirmed <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
+
+locations <- confirmed[, 1:4] %>%
+  set_colnames(c("Sublocation", "Location", "Lat", "Long")) %>%
+  mutate(loc_id = 1:n())
+
+confirmed_by_date <- confirmed %>% 
+  select(matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
+  mutate(loc_id = locations$loc_id) %>%
+  gather(key="date", value="confirmed", -loc_id)
+
+dead <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv") %>% 
+select(matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
+  mutate(loc_id = locations$loc_id) %>%
+  gather(key="date", value="dead", -loc_id)
+
+cases <- full_join(confirmed_by_date, dead) %>%
+  group_by(loc_id) %>% 
+  mutate(date = mdy(date)) %>%
+  arrange(date) %>%
+  mutate(
+    new_dead = dead - lag(dead, 1, default=0),
+    new_confirmed = confirmed - lag(confirmed, 1, default=0)
+  ) %>% 
+  glimpse()
+```
+
+```{r visualize}
+cases %>% filter(max(confirmed) > 10000) %>%
+  inner_join(locations) %>% 
+  ungroup() %>%
+  group_by(Location, date) %>%
+  summarize(confirmed = sum(confirmed)) %>% 
+  ggplot(aes(x = date, y=confirmed, color=Location)) + 
+  geom_line() + 
+  scale_y_log10() + 
+  theme_minimal()
+```
+
+
+
+
+

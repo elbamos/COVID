@@ -1,0 +1,188 @@
+---
+title: "COVID-19"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+
+# Tidyverse
+library(readr)
+library(dplyr)
+library(magrittr)
+library(lubridate)
+library(tidyr)
+
+# Visualizations 
+library(leaflet)
+library(highcharter)
+
+# Other
+library(jsonlite)
+```
+
+
+```{r global,include=F}
+# ----- ALL INITIAL DATA LOADING AND ANY SYNC'D EXPENSIVE MUNGING TAKES PLACE HERE -----
+
+# --- JOHNS HOPKINS ---
+confirmed <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
+
+locations <- confirmed[, 1:4] %>%
+  set_colnames(c("Sublocation", "Location", "lat", "lng")) %>%
+  mutate(loc_id = 1:n())
+
+confirmed_by_date <- confirmed %>% 
+  select(matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
+  mutate(loc_id = locations$loc_id) %>%
+  gather(key="date", value="confirmed", -loc_id)
+
+dead <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv") %>% 
+select(matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
+  mutate(loc_id = locations$loc_id) %>%
+  gather(key="date", value="dead", -loc_id)
+
+world_cases_jh <- full_join(confirmed_by_date, dead) %>%
+  group_by(loc_id) %>% 
+  mutate(date = mdy(date)) %>%
+  arrange(date) %>%
+  mutate(
+    new_dead = dead - lag(dead, 1, default=0),
+    new_confirmed = confirmed - lag(confirmed, 1, default=0)
+  )
+
+
+# ------ NY TIMES
+cases_county_nyt <- read_csv("./covid-19-data/us-counties.csv")
+cases_state_nyt <- read_csv("./covid-19-data/us-states.csv") 
+
+
+# ------ COVID Tracking Project
+covid_track = fromJSON("https://covidtracking.com/api/states/daily") %>%
+  mutate(
+    date = ymd(date)
+  ) %>% inner_join(
+    data.frame(state = state.abb, state_full=state.name)
+  ) %>% 
+  select(-state) %>% 
+  rename(state=state_full)
+
+# TODO: Integrate location data for the counties, lat/lon for the states
+```
+
+
+World Overview
+=======================================================================
+
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+### Input
+
+```{r}
+sliderInput("worlddate", 
+            "Date:", 
+            min=min(world_cases_jh$date), 
+            max=max(world_cases_jh$date), 
+            value=max(world_cases_jh$date) - 1, 
+            timeFormat="%Y-%m-%d",
+            animate=T)
+```
+
+
+Row
+-----------------------------------------------------------------------
+### World Map
+
+```{r worldmap}
+world_cases <- reactive({
+  wd <- if_else(is.null(input$worlddate), max(world_cases_jh$date), input$worlddate)
+  world_cases_jh %>% 
+    dplyr::filter(date == wd) %>% 
+    inner_join(locations) %>%
+    ungroup() %>% 
+    select(confirmed, dead, lat, lng, Sublocation, Location) %>% 
+    mutate(
+      popup=paste0('<br/><font color="blue">', 
+                   if_else(is.na(Sublocation), Location, paste0(Sublocation, "(", Location, ")")), 
+                   "</font><br/>", 
+                   "Confirmed: ", confirmed, 
+                   "Deaths: ", dead)
+    )
+})
+
+output$worldview <- renderLeaflet({
+  leaflet(
+    options=leafletOptions(minZoom=2)
+  ) %>% 
+    addProviderTiles(providers$CartoDB.Positron)
+})
+
+sizer <- 2000
+
+observe({
+  leafletProxy("worldview", data=world_cases(), deferUntilFlush=T) %>%
+    clearShapes() %>% 
+    addCircles(opacity=0.2, group="Confirmed",
+             color="Blue", radius = ~(sqrt(confirmed) * sizer)) %>% 
+    addCircles(opacity=0.2, group="Deaths", 
+              color="red", radius= ~(sqrt(dead) * sizer)) %>%
+    addLayersControl(overlayGroups=c("Confirmed", "Deaths"))
+})
+
+leafletOutput("worldview")
+```
+
+Row {data-height=300}
+----------------------------------------------------
+
+### World Cases Flat
+
+```{r worldcasesflat}
+world_case_summary <- world_cases_jh %>%
+  ungroup() %>%
+  group_by(date) %>%
+  select(-loc_id) %>%
+  summarize_all(sum)
+
+output$worldcaseslinear <- renderHighchart(
+  world_case_summary %>% select(date, Confirmed=confirmed, Deaths=dead) %>%
+    gather(key="Series", value="val", -date) %>%
+    hchart("line", hcaes(x=date, y=val, group=Series)) %>%
+    hc_title(text="Confirmed Cases and Deaths (Global, Linear Scale)")
+)
+
+highchartOutput("worldcaseslinear")
+```
+
+### World Cases Logarithmic
+
+```{r worldcaseslog}
+output$worldcaseslog <- renderHighchart(
+  world_case_summary %>% select(date, Confirmed=confirmed, Deaths=dead) %>%
+    gather(key="Series", value="val", -date) %>%
+    hchart("line", hcaes(x=date, y=val, group=Series)) %>% 
+   hc_yAxis(type = "logarithmic", gridLineWidth = 0) %>%
+    hc_title(text="Confirmed Cases and Deaths (Global, Logarithmic Scale)")
+)
+
+highchartOutput("worldcaseslog")
+```
+
+### New Cases Per Day
+
+```{r worldnewcases}
+output$dailynewcases <- renderHighchart(
+  world_case_summary %>% select(date, New=new_confirmed) %>%
+    hchart("column", hcaes(x=date, y=New)) %>%
+    hc_title(text="New Cases Per Day")
+)
+
+highchartOutput("dailynewcases")
+```

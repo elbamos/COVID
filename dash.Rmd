@@ -17,10 +17,13 @@ library(dplyr)
 library(magrittr)
 library(lubridate)
 library(tidyr)
+library(purrr)
 
 # Visualizations 
 library(leaflet)
 library(highcharter)
+library(htmltools)
+library(sf)
 
 # Other
 library(jsonlite)
@@ -185,4 +188,78 @@ output$dailynewcases <- renderHighchart(
 )
 
 highchartOutput("dailynewcases")
+```
+
+
+United States
+================================================
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+### Input
+
+```{r}
+sliderInput("usdate", 
+            "Date:", 
+            min=min(cases_county_nyt$date), 
+            max=max(cases_county_nyt$date), 
+            value=max(cases_county_nyt$date) - 1, 
+            timeFormat="%Y-%m-%d",
+            animate=T)
+```
+
+Row
+-----------------------------------------------
+
+### US Map
+
+```{r usmap}
+counties <- USAboundaries::us_counties()
+
+us_map_filter <- counties %>% 
+  inner_join(cases_county_nyt %>%
+               filter(cases > 0) %>%
+               rename(name=county, state_name=state)) %>%
+  mutate(
+    label = paste0("<font color='blue'>", 
+                   name, ", ", state_name, "</font><br/>", 
+                   "Confirmed Cases: ",  cases, "<br/>", 
+                   "Deaths: ", deaths, "<br/>"),
+    label = map(label, HTML)
+  )
+
+us_cases <- reactive({
+  usd <- if_else(is.null(input$usdate), max(cases_county_nyt$date), input$usdate)
+  us_map_filter %>% filter(date == usd) 
+})
+
+output$usview <- renderLeaflet({
+  leaflet(
+    options=leafletOptions(minZoom=4)
+  ) %>% 
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    setMaxBounds(-167.276413, 5.499550, -52.233040, 83.162102)
+})
+
+bins <- seq(from=0, to=log10(max(us_map_filter$cases)), length.out = 10)^10
+pal <- colorBin("YlOrRd", domain = us_map_filter$cases, bins = bins)
+
+observe({
+  leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
+  clearShapes()  %>%
+  addPolygons(opacity = .4,
+              group="Confirmed Cases", 
+              weight = .3,
+              fillColor = ~pal(cases),
+              fillOpacity = .7,
+              label = ~label, 
+              highlight = highlightOptions(
+                weight=5, fillOpacity=1.0, bringToFront = TRUE
+                )
+              ) %>%
+    addLayersControl(overlayGroups=c("Confirmed Cases"))
+})
+
+leafletOutput("usview")
 ```

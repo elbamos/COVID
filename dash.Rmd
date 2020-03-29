@@ -12,6 +12,7 @@ runtime: shiny
 # TODO: Add proportions of populations as a view for US
 # TODO: Add a page for test rate
 # TODO: Add chart showing interventions
+# TODO: Handle NYC and Washington, DC in intervention data
 ```
 
 ```{r setup, include=FALSE}
@@ -25,6 +26,7 @@ library(magrittr)
 library(lubridate)
 library(tidyr)
 library(purrr)
+library(stringr)
 
 # Visualizations 
 library(leaflet)
@@ -132,6 +134,25 @@ covid_track = fromJSON("https://covidtracking.com/api/states/daily") %>%
   left_join(
     locations %>% select(state=Sublocation, loc_id)
   )
+
+## Intervention data
+interventions <- read_csv("covid19-intervention-data/npi_data_03-24-2020.csv") %>% 
+  select(-matches("X[0-9]+")) %>%
+  mutate(
+    state.abb = str_match(Intervention, "., ([A-Z]+)")[, 2], 
+    county = str_match(Intervention, "(.+)\\sCounty.")[,2]
+    
+  ) %>%
+  filter(!is.na(state.abb), !is.na(county)) %>%
+  select(-Intervention) %>% 
+  gather(key="intervention", value="date", -state.abb, -county) %>% 
+  filter(! is.na(date)) %>%
+  inner_join(data.frame(state.abb=state.abb, state.name=state.name)) %>% 
+  mutate(
+    date = mdy(date)
+  ) %>% 
+  inner_join(locations %>% select(county=Subsublocation, state.name=Sublocation, loc_id)) %>% 
+  select(-matches("state"), -county)
 ```
 
 

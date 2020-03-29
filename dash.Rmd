@@ -7,6 +7,13 @@ output:
 runtime: shiny
 ---
 
+```{r todods,include=F}
+# TODO: Get rid of y-axis names on the line charts
+# TODO: Add charts for individual states
+# TODO: Add proportions of populations as a view for US
+# TODO: Add a page for test rate
+```
+
 ```{r setup, include=FALSE}
 library(flexdashboard)
 library(shiny)
@@ -105,18 +112,19 @@ Row
 
 ```{r worldmap}
 world_cases <- reactive({
-  wd <- if_else(is.null(input$worlddate), max(world_cases_jh$date), input$worlddate)
+  req(input$worlddate)
   world_cases_jh %>% 
-    dplyr::filter(date == wd) %>% 
+    dplyr::filter(date == input$worlddate) %>% 
     inner_join(locations) %>%
     ungroup() %>% 
     select(confirmed, dead, lat, lng, Sublocation, Location) %>% 
     mutate(
-      popup=paste0('<br/><font color="blue">', 
-                   if_else(is.na(Sublocation), Location, paste0(Sublocation, "(", Location, ")")), 
+      popup=paste0('<font color="blue">', 
+                   if_else(is.na(Sublocation), Location, paste0(Sublocation, " (", Location, ")")), 
                    "</font><br/>", 
                    "Confirmed: ", confirmed, 
-                   "Deaths: ", dead)
+                   "<br/>Deaths: ", dead),
+      popup=map(popup, HTML)
     )
 })
 
@@ -133,7 +141,8 @@ observe({
   leafletProxy("worldview", data=world_cases(), deferUntilFlush=T) %>%
     clearShapes() %>% 
     addCircles(opacity=0.2, group="Confirmed",
-             color="Blue", radius = ~(sqrt(confirmed) * sizer)) %>% 
+             color="Blue", radius = ~(sqrt(confirmed) * sizer),
+             label=~popup) %>% 
     addCircles(opacity=0.2, group="Deaths", 
               color="red", radius= ~(sqrt(dead) * sizer)) %>%
     addLayersControl(overlayGroups=c("Confirmed", "Deaths"))
@@ -230,8 +239,8 @@ us_map_filter <- counties %>%
   )
 
 us_cases <- reactive({
-  usd <- if_else(is.null(input$usdate), max(cases_county_nyt$date), input$usdate)
-  us_map_filter %>% filter(date == usd) 
+  req(input$usdate)
+  us_map_filter %>% filter(date == input$usdate) 
 })
 
 output$usview <- renderLeaflet({
@@ -262,4 +271,56 @@ observe({
 })
 
 leafletOutput("usview")
+```
+
+
+Row 
+------------------------------------------------------------------
+
+### US Cases Flat
+
+```{r uscasesflat}
+us_case_summary <- cases_state_nyt %>%
+  ungroup() %>%
+  select(date, cases, deaths) %>% 
+  group_by(date) %>%
+  summarize_all(sum)
+
+output$uscaseslinear <- renderHighchart(
+  us_case_summary %>% select(date, Confirmed=cases, Deaths=deaths) %>%
+    gather(key="Series", value="val", -date) %>%
+    hchart("line", hcaes(x=date, y=val, group=Series)) %>%
+    hc_title(text="Confirmed Cases and Deaths (U.S., Linear Scale)")
+)
+
+highchartOutput("uscaseslinear")
+```
+
+### US Cases Logarithmic
+
+```{r uscaseslog}
+output$uscaseslog <- renderHighchart(
+  us_case_summary %>% select(date, Confirmed=cases, Deaths=deaths) %>%
+    gather(key="Series", value="val", -date) %>%
+    hchart("line", hcaes(x=date, y=val, group=Series)) %>% 
+   hc_yAxis(type = "logarithmic", gridLineWidth = 0) %>%
+    hc_title(text="Confirmed Cases and Deaths (U.S., Logarithmic Scale)")
+)
+
+highchartOutput("uscaseslog")
+```
+
+### New Cases Per Day
+
+```{r usewcases}
+output$usdailynewcases <- renderHighchart(
+  us_case_summary %>% 
+    arrange(date) %>%
+    mutate(new_confirmed = cases - lag(cases, 1, default=0)) %>%
+    select(date, New=new_confirmed) %>%
+    hchart("column", hcaes(x=date, y=New)) %>%
+    hc_title(text="New Cases Per Day")
+)
+
+highchartOutput("usdailynewcases")
 ```

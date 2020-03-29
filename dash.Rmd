@@ -232,10 +232,10 @@ sizer <- 2000
 observe({
   leafletProxy("worldview", data=world_cases(), deferUntilFlush=T) %>%
     clearShapes() %>% 
-    addCircles(opacity=0.2, group="Confirmed",
+    addCircles(group="Confirmed", weight=0, opacity=0, fillOpacity = 0.3, 
              color="Blue", radius = ~(sqrt(confirmed) * sizer),
              label=~popup) %>% 
-    addCircles(opacity=0.2, group="Deaths", 
+    addCircles(group="Deaths", weight=0, opacity=0, fillOpacity = 0.3, 
               color="red", radius= ~(sqrt(dead) * sizer)) %>%
     addLayersControl(overlayGroups=c("Confirmed", "Deaths"))
 })

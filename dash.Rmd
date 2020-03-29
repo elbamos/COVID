@@ -10,9 +10,9 @@ runtime: shiny
 ```{r todods,include=F}
 # TODO: Add charts for individual states & counties
 # TODO: Add proportions of populations as a view for US
-# TODO: Add a page for test rate
 # TODO: Add chart showing interventions
 # TODO: Handle NYC and Washington, DC in intervention data
+# TODO: Animate the bar charts next to the maps
 ```
 
 ```{r setup, include=FALSE}
@@ -132,7 +132,7 @@ covid_track = fromJSON("https://covidtracking.com/api/states/daily") %>%
   select(-state) %>% 
   rename(state=state_full) %>%
   left_join(
-    locations %>% select(state=Sublocation, loc_id)
+    locations %>% filter(is.na(Subsublocation)) %>% select(state=Sublocation, loc_id)
   )
 
 ## Intervention data
@@ -420,4 +420,59 @@ output$usdailynewcases <- renderHighchart(
 )
 
 highchartOutput("usdailynewcases")
+```
+
+US Testing
+=====================================================
+
+Row
+-----------------------------------------------------
+
+### US Testing (Cumulative)
+
+```{r ustesting}
+output$ustesting <- renderHighchart(
+  covid_track %>% 
+    group_by(date, loc_id) %>%
+    select(date, positive, negative, pending) %>% 
+    summarize_all(~as.numeric(max(., na.rm=T))) %>%
+    mutate_all(~if_else(is.infinite(.), 0, as.numeric(.))) %>% 
+    ungroup() %>%  
+    select(-loc_id) %>% 
+    group_by(date) %>% 
+    summarize_all(~sum(., na.rm=T)) %>%
+    gather(key="Series", val="val", -date) %>% 
+    hchart("column", hcaes(x=date, y=val, group=Series, fill=Series)) %>%
+    hc_plotOptions(column=list(stacking="normal")) %>%
+    hc_title(text="Progress of US Testing") %>%
+    hc_yAxis(title="")
+)
+
+highchartOutput("ustesting")
+```
+
+### US Testing (Incremental)
+
+```{r ustestinginc}
+output$ustestinginc <- renderHighchart(
+  covid_track %>% 
+    group_by(date, loc_id) %>%
+    select(date, positive, negative, pending) %>% 
+    summarize_all(~as.numeric(max(., na.rm=T))) %>%
+    mutate_all(~if_else(is.infinite(.), 0, as.numeric(.))) %>% 
+    ungroup() %>%  
+    select(-loc_id) %>% 
+    group_by(date) %>% 
+    summarize_all(~sum(., na.rm=T)) %>%
+    arrange(date) %>% 
+    mutate_if(is.numeric, ~ . -  lag(., 1, default=0)) %>% 
+    gather(key="Series", val="val", -date) %>% 
+    filter(Series != "pending") %>% 
+    hchart("column", hcaes(x=date, y=val, group=Series, fill=Series)) %>%
+    hc_plotOptions(column=list(stacking="normal")) %>%
+    hc_title(text="Daily New Test Results") %>%
+    hc_yAxis(title="")
+)
+
+highchartOutput("ustestinginc")
 ```

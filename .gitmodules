@@ -4,3 +4,6 @@
 [submodule "COVID-19"]
 	path = COVID-19
 	url = https://github.com/CSSEGISandData/COVID-19
+[submodule "covid19-intervention-data"]
+	path = covid19-intervention-data
+	url = https://github.com/Keystone-Strategy/covid19-intervention-data/

@@ -44,6 +44,37 @@ library(jsonlite)
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
 
+geometries <- counties %>%
+  select(county=name, state=state_name, geometry, aland, awater) %>%
+  rbind(
+    states %>% select(state=state_name, geometry, aland, awater) %>%
+      mutate(county=NA), 
+    counties %>% 
+      filter(
+        state_name == "New York", 
+        name %in% c("Kings", "Queens", "New York", "Bronx", "Staten Island", "Richmond")
+      ) %>% 
+      summarize(
+        geometry = st_combine(geometry), 
+        aland = sum(aland), 
+        awater = sum(awater)
+      ) %>%
+      mutate(
+        state = "New York", 
+        county = "New York City"
+      )
+  ) %>% 
+  mutate(
+    centroid = sf::st_centroid(geometry), 
+    lat = map(centroid, ~.x[[1]][1]), 
+    lng = map(centroid, ~.x[[2]][1]), 
+    lat = unlist(lat), 
+    lng = unlist(lng)
+  ) %>% select(-centroid) 
+
+rm(counties)
+rm(states)
+
 # --- JOHNS HOPKINS ---
 confirmed <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
 
@@ -51,39 +82,25 @@ locations <- confirmed[, 1:4] %>%
   set_colnames(c("Sublocation", "Location", "lat", "lng")) %>%
   mutate(us_level="Country", Subsublocation=NA) %>% 
   bind_rows(
-    states %>% 
-      select(state_name, geometry) %>% 
+    geometries %>% 
+      rename(Sublocation=state, Subsublocation=county) %>%
       mutate(
-        centroid = sf::st_centroid(geometry), 
-        lat = map(centroid, ~.x[[1]][1]), 
-        lng = map(centroid, ~.x[[1]][2]), 
-        lat = unlist(lat), 
-        Location="US", Subsublocation=NA, 
-        lng = unlist(lng)) %>%
-      rename(Sublocation=state_name) %>%
-      mutate(us_level="State")
-  ) %>%
-  bind_rows(
-    counties %>% 
-      select(name, state_name, geometry) %>% 
-      mutate(
-        centroid = sf::st_centroid(geometry), 
-        lat = map(centroid, ~.x[[1]][1]), 
-        lng = map(centroid, ~.x[[1]][2]), 
-        lat = unlist(lat), 
         Location="US",
-        lng = unlist(lng), 
-        us_level="County") %>%
-      rename(Sublocation=state_name, Subsublocation=name)
-  ) %>% 
+        us_level = if_else(is.na(Subsublocation), "State", "County")
+      ) %>% select(Location, Sublocation, Subsublocation, us_level, lat, lng)
+  ) %>%
   mutate(loc_id = 1:n()) %>%
   select(Location, Sublocation, Subsublocation, lat, lng, us_level, loc_id)
 
-counties %<>% 
-  left_join(locations %>% select(state_name = Sublocation, name = Subsublocation, loc_id))
+## Combine geometries here and add NYC 
 
-states %<>% 
-  left_join(locations %>% select(state_name = Sublocation, loc_id))
+geometries %<>%
+  left_join(locations %>% 
+              select(state = Sublocation, 
+                     county = Subsublocation, 
+                     loc_id)
+            )
+
 
 confirmed_by_date <- confirmed %>% 
   inner_join(
@@ -116,6 +133,7 @@ cases_county_nyt <- read_csv("./covid-19-data/us-counties.csv") %>%
   select(-county, -state)
   
 cases_state_nyt <- read_csv("./covid-19-data/us-states.csv") %>% 
+  filter(! state %in% c(78, 66)) %>% # Exclude virgin islands and guam
   left_join(locations %>% 
               filter(is.na(Subsublocation)) %>% 
               select(state=Sublocation, loc_id)) %>% 
@@ -136,14 +154,19 @@ covid_track = fromJSON("https://covidtracking.com/api/states/daily") %>%
   )
 
 ## Intervention data
-interventions <- read_csv("covid19-intervention-data/npi_data_03-24-2020.csv") %>% 
+interventions <- read_csv("covid19-intervention-data/npi_data_03-24-2020.csv") %>%
   select(-matches("X[0-9]+")) %>%
   mutate(
     state.abb = str_match(Intervention, "., ([A-Z]+)")[, 2], 
-    county = str_match(Intervention, "(.+)\\sCounty.")[,2]
-    
-  ) %>%
-  filter(!is.na(state.abb), !is.na(county)) %>%
+    county = str_match(Intervention, "(.+)\\sCounty.")[,2],
+    county = case_when(
+      ! is.na(county) ~ county, 
+      str_detect(Intervention, "DC") ~ "Washington", 
+      str_detect(Intervention, "New York City") ~ "New York City", 
+      TRUE ~ county
+    ), 
+    state.abb = if_else(is.na(state.abb), "DC", state.abb)
+  ) %>% 
   select(-Intervention) %>% 
   gather(key="intervention", value="date", -state.abb, -county) %>% 
   filter(! is.na(date)) %>%
@@ -318,26 +341,28 @@ Row
 ### US Map
 
 ```{r usmap}
-us_map_filter <- counties %>% left_join(
-  cases_county_nyt %>%
-    filter(cases > 0) %>% 
-    inner_join(locations) %>% 
-    rename(state=Sublocation, county=Subsublocation) %>% 
-    mutate(
-      label = paste0("<font color='blue'>", 
-                     county, ", ", state, "</font><br/>", 
-                     "Confirmed Cases: ",  cases, "<br/>", 
-                     "Deaths: ", deaths, "<br/>"),
-      label = map(label, HTML)
-    )
-)
+us_map_filter <- geometries %>% 
+  filter(! is.na(county)) %>% 
+  left_join(
+    cases_county_nyt %>%
+      filter(cases > 0) %>% 
+      inner_join(locations) %>% 
+      rename(state=Sublocation, county=Subsublocation) %>% 
+      mutate(
+        label = paste0("<font color='blue'>", 
+                       county, ", ", state, "</font><br/>", 
+                       "Confirmed Cases: ",  cases, "<br/>", 
+                       "Deaths: ", deaths, "<br/>"),
+        label = map(label, HTML)
+      )
+  )
 
 us_cases <- reactive({
   req(input$usdate)
   us_map_filter %>% filter(date == input$usdate) 
 })
 
-bins <- c(1, 50, 100, 500, 1000, 5000, 10000, 25000, Inf)
+bins <- c(1, 50, 100, 500, 1000, 5000, 7500, 10000, 15000, 25000, 50000, 75000, Inf)
 pal <- colorBin("YlOrRd", domain = us_map_filter$cases, bins = bins)
 
 output$usview <- renderLeaflet({
@@ -400,7 +425,7 @@ output$uscaseslog <- renderHighchart(
   us_case_summary %>% select(date, Confirmed=cases, Deaths=deaths) %>%
     gather(key="Series", value="val", -date) %>%
     hchart("line", hcaes(x=date, y=val, group=Series)) %>% 
-    hc_yAxis(type = "logarithmic", gridLineWidth = 0, title="") %>%
+    hc_yAxis(type = "logarithmic", gridLineWidth = 0, title="", min=1) %>%
     hc_title(text="Confirmed Cases and Deaths (U.S., Logarithmic Scale)")
 )
 
@@ -475,4 +500,92 @@ output$ustestinginc <- renderHighchart(
 )
 
 highchartOutput("ustestinginc")
+```
+
+
+Interventions
+====================================================
+
+```{r munge_intervention_data}
+locs_with_intervention <- interventions %>% group_by(loc_id) %>% summarize() 
+
+counties_with_intervention <- cases_county_nyt %>% semi_join(locs_with_intervention) 
+
+interventions_with_cases <- interventions %>% 
+  inner_join(cases_county_nyt) %>% 
+  inner_join(locations) %>%
+  rename(county=Subsublocation, state=Sublocation) %>%
+  mutate(name = paste0(county, ", ", state)) %>%
+  select(name, cases, intervention, date)
+
+```
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+```{r interventioninputs}
+avail_states <- counties_with_intervention %>% 
+  inner_join(locations) %>%
+  use_series(Sublocation) %>% unique() %>% sort()
+
+checkboxGroupInput("interventionstates", label = "States to Show", 
+                   choices = avail_states, 
+                   selected=c("New York", "California"))
+
+radioButtons("interventionlog", label="Log or Linear", choices=c("logarithmic", "linear"), selected="logarithmic")
+
+sliderInput("interventionstartcases", label="Start # of Cases", 
+            min=1, max=1000, value=10)
+```
+
+Row 
+---------------------------------------------------------------------- 
+
+```{r interventions}
+relative_dates <- reactive(
+  counties_with_intervention %>% 
+    semi_join(
+      locations %>% 
+        filter(Sublocation %in% input$interventionstates)
+      ) %>% 
+    group_by(loc_id) %>%
+    arrange(date) %>% 
+    filter(cases >= input$interventionstartcases) %>%
+    filter(row_number() == 1) %>%
+    select(loc_id, first_date=date)
+)
+
+counties_to_show <- reactive(counties_with_intervention %>% 
+    inner_join(relative_dates()) %>%
+    filter(date >= first_date) %>%
+    mutate(days = as.numeric(date - first_date)) %>%   
+    inner_join(locations) %>% 
+    rename(county=Subsublocation, state=Sublocation) %>%
+    mutate(name = paste0(county, ", ", state)) %>%
+    left_join(interventions) 
+)
+
+interventions_with_cases <- reactive(counties_to_show() %>% filter(! is.na(intervention)))
+
+output$interventions <- renderHighchart(
+  highchart() %>% 
+    hc_add_series(data=counties_to_show(), type="line", 
+                     mapping=hcaes(x=days, y=cases, group=name), 
+                     colorAxis=0,
+                     lineWidth=1, 
+                  marker=list(enabled=FALSE),
+                  tooltip=list(
+                    pointFormat="Date: {point.date}<br/>Cases: {point.cases}"
+                  )) %>% 
+    hc_yAxis(title="Cases", type=input$interventionlog, min=1) %>%
+    hc_add_series(data=interventions_with_cases(), type="point", 
+                  mapping=hcaes(x=days, y=cases, fill=name,
+                                color=name, group=intervention), 
+                  colorAxis=0, tooltip=list(
+                    headerFormat="<span style='color:{point.color}'>●</span> <span style='font-size: 12px'> {series.name}</span><br/>",
+                    pointFormat="{point.name}<br/>Date: {point.date}<br/>Cases: {point.cases}"
+                  ))
+)
+
+highchartOutput("interventions")
 ```

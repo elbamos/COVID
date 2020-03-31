@@ -157,21 +157,19 @@ covid_track = fromJSON("https://covidtracking.com/api/states/daily") %>%
   )
 
 ## Intervention data
-interventions <- read_csv("covid19-intervention-data/npi_data_03-24-2020.csv") %>% 
+interventions <- read_csv("covid19-intervention-data/npi_data_03-24-2020.csv") %>%
   select(-matches("X[0-9]+")) %>%
   mutate(
     state.abb = str_match(Intervention, "., ([A-Z]+)")[, 2], 
     county = str_match(Intervention, "(.+)\\sCounty.")[,2],
-    county = if_else(
-      is.na(county) & str_detect(Intervention, "DC"), "Washington", county
+    county = case_when(
+      ! is.na(county) ~ county, 
+      str_detect(Intervention, "DC") ~ "Washington", 
+      str_detect(Intervention, "New York City") ~ "New York City", 
+      TRUE ~ county
     ), 
     state.abb = if_else(is.na(state.abb), "DC", state.abb)
   ) %>% 
-  left_join(data.frame(Intervention = rep("New York City, NY", 5), nycounty = c(
-    "New York", "Kings", "Queens", "Bronx", "Staten Island"
-  ))) %>% 
-  mutate(county = if_else(!is.na(nycounty), as.character(nycounty), county)) %>% 
-  select(-nycounty) %>% 
   select(-Intervention) %>% 
   gather(key="intervention", value="date", -state.abb, -county) %>% 
   filter(! is.na(date)) %>%

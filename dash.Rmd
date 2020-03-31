@@ -333,6 +333,9 @@ sliderInput("usdate",
             value=max(cases_county_nyt$date) - 1, 
             timeFormat="%Y-%m-%d",
             animate=T)
+radioButtons("uslog", "Scale", choices=list(Linear="linear", 
+                                            Logarithmic="logarithmic"), 
+             selected="linear")
 ```
 
 Row
@@ -398,7 +401,7 @@ leafletOutput("usview")
 Row 
 ------------------------------------------------------------------
 
-### US Cases Flat
+### US Cases
 
 ```{r uscasesflat}
 us_case_summary <- cases_state_nyt %>%
@@ -407,44 +410,71 @@ us_case_summary <- cases_state_nyt %>%
   group_by(date) %>%
   summarize_all(sum)
 
-output$uscaseslinear <- renderHighchart(
-  us_case_summary %>% select(date, Confirmed=cases, Deaths=deaths) %>%
-    gather(key="Series", value="val", -date) %>%
-    hchart("line", hcaes(x=date, y=val, group=Series)) %>%
-    hc_title(text="Confirmed Cases and Deaths (U.S., Linear Scale)") %>%
-    hc_yAxis(title="")
-)
+output$uscaseslinear <- renderHighchart({
+  req(input$uslog)
+  highchart() %>% 
+    hc_title(text="Confirmed Cases, Hosp. and Deaths (U.S.)") %>%
+    hc_yAxis(title="", type=input$uslog, min=1) %>%
+    hc_xAxis(type="datetime") %>% 
+    hc_add_series(
+      type="line",
+      data=us_case_summary %>% 
+        select(date, Confirmed=cases, Deaths=deaths) %>% 
+        gather(key="Series", value="val", -date) %>% 
+        bind_rows(
+          covid_track %>% 
+            group_by(date) %>% 
+            summarize(val = max(hospitalized, na.rm=T)) %>%
+            mutate(Series="Hospitalizations")
+        ), 
+      mapping=hcaes(x=date, y=val, group=Series)
+    )
+})
 
 highchartOutput("uscaseslinear")
 ```
 
-### US Cases Logarithmic
-
-```{r uscaseslog}
-output$uscaseslog <- renderHighchart(
-  us_case_summary %>% select(date, Confirmed=cases, Deaths=deaths) %>%
-    gather(key="Series", value="val", -date) %>%
-    hchart("line", hcaes(x=date, y=val, group=Series)) %>% 
-    hc_yAxis(type = "logarithmic", gridLineWidth = 0, title="", min=1) %>%
-    hc_title(text="Confirmed Cases and Deaths (U.S., Logarithmic Scale)")
-)
-
-highchartOutput("uscaseslog")
-```
 
 ### New Cases Per Day
 
 ```{r usewcases}
 output$usdailynewcases <- renderHighchart(
-  us_case_summary %>% 
-    arrange(date) %>%
-    mutate(new_confirmed = cases - lag(cases, 1, default=0)) %>%
-    select(date, New=new_confirmed) %>%
-    hchart("column", hcaes(x=date, y=New)) %>%
-    hc_title(text="New Cases Per Day")
+  highchart() %>% 
+    hc_title(text="New Cases Per Day") %>%
+    hc_xAxis(type="datetime") %>%
+    hc_yAxis(title="", type=input$uslog, min=1) %>% 
+    hc_add_series(type="column", 
+                  data=us_case_summary %>% 
+                    arrange(date) %>%
+                    mutate(new_confirmed = cases - lag(cases, 1, default=0)) %>%
+                    select(date, New=new_confirmed), 
+                  mapping=hcaes(x=date, y=New))
 )
 
 highchartOutput("usdailynewcases")
+```
+
+### New Hospitalizations Per Day
+
+```{r ushosp}
+output$ushospperday <- renderHighchart({
+  highchart() %>% 
+    hc_title(text="New Hospitalizations Per Day (U.S.)") %>%
+    hc_yAxis(title="", type=input$uslog, min=1) %>%
+    hc_xAxis(type="datetime") %>% 
+    hc_add_series(
+      type="column",
+      data=covid_track %>% 
+        group_by(date) %>% 
+        summarize(Hospitalizations = max(hospitalized, na.rm=T)) %>%
+        filter(Hospitalizations > 0) %>% 
+        arrange(date) %>% 
+        mutate(Hospitalizations = Hospitalizations - lag(Hospitalizations, default=0)), 
+      mapping=hcaes(x=date, y=Hospitalizations)
+    )
+})
+
+highchartOutput("ushospperday")
 ```
 
 US Testing

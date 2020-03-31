@@ -8,8 +8,6 @@ runtime: shiny
 ---
 
 ```{r todods,include=F}
-# TODO: New York City is missing! 
-
 # TODO: Need to change interventions popup
 # TODO: Switch interventions between log and flat view
 
@@ -138,6 +136,7 @@ cases_county_nyt <- read_csv("./covid-19-data/us-counties.csv") %>%
   select(-county, -state)
   
 cases_state_nyt <- read_csv("./covid-19-data/us-states.csv") %>% 
+  filter(! state %in% c(78, 66)) %>% # Exclude virgin islands and guam
   left_join(locations %>% 
               filter(is.na(Subsublocation)) %>% 
               select(state=Sublocation, loc_id)) %>% 
@@ -431,7 +430,7 @@ output$uscaseslog <- renderHighchart(
   us_case_summary %>% select(date, Confirmed=cases, Deaths=deaths) %>%
     gather(key="Series", value="val", -date) %>%
     hchart("line", hcaes(x=date, y=val, group=Series)) %>% 
-    hc_yAxis(type = "logarithmic", gridLineWidth = 0, title="") %>%
+    hc_yAxis(type = "logarithmic", gridLineWidth = 0, title="", min=1) %>%
     hc_title(text="Confirmed Cases and Deaths (U.S., Logarithmic Scale)")
 )
 

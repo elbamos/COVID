@@ -77,6 +77,7 @@ rm(states)
 # --- JOHNS HOPKINS ---
 url_world_confirmed <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
 url_world_dead <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
+url_world_recovered <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv"
 
 confirmed <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
 
@@ -103,7 +104,7 @@ geometries %<>%
                      loc_id)
             )
 
-process_world_jh <- function(confirmed_in, dead_in) {
+process_world_jh <- function(confirmed_in, dead_in, recoveries_in) {
   confirmed_by_date <- confirmed_in %>% 
     inner_join(
       locations %>% 
@@ -120,10 +121,20 @@ process_world_jh <- function(confirmed_in, dead_in) {
     select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
     gather(key="date", value="dead", -loc_id)
   
-  full_join(confirmed_by_date, dead) %>%
+  recoveries <- recoveries_in %>% 
+    inner_join(
+      locations %>% 
+        select(`Province/State`=Sublocation, `Country/Region`=Location, loc_id)
+    ) %>%
+    select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
+    gather(key="date", value="recovered", -loc_id)
+
+  
+  full_join(confirmed_by_date, dead) %>% full_join(recoveries) %>%
     group_by(loc_id) %>% 
     mutate(date = mdy(date)) %>%
     arrange(date) %>%
+    mutate_if(is.numeric, ~ if_else(is.na(.), 0, .)) %>% 
     mutate(
       new_dead = dead - lag(dead, 1, default=0),
       new_confirmed = confirmed - lag(confirmed, 1, default=0)
@@ -132,7 +143,9 @@ process_world_jh <- function(confirmed_in, dead_in) {
 
 dead <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv")
 
-world_cases_jh <- process_world_jh(confirmed, dead)
+recoveries <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv")
+
+world_cases_jh <- process_world_jh(confirmed, dead, recoveries)
 
 
 # ------ NY TIMES
@@ -247,11 +260,13 @@ dataset$cases_state_nyt <- reactivePoll(
 dataset$world_cases_jh <- reactivePoll(
   intervalMillis = updateFreq, session=NULL,
   checkFunc = function() max(get_url_date(url_world_confirmed),
-                             get_url_date(url_world_dead)), 
+                             get_url_date(url_world_dead), 
+                             get_url_date(url_world_recovered)), 
   valueFunc = function() {
     confirmed <- read_csv(url_world_confirmed)
     dead <- read_csv(url_world_dead) 
-    process_world_jh(confirmed, dead)
+    recoveries <- read_csv(url_world_recovered)
+    process_world_jh(confirmed, dead, recoveries)
   }
 )
 
@@ -281,7 +296,12 @@ output$worldoverviewinputs <- renderUI(
             max=max(dataset$world_cases_jh()$date), 
             value=max(world_cases_jh$date), 
             timeFormat="%Y-%m-%d",
-            animate=T)
+            animate=T),
+    radioButtons("worldscale", "Scale", 
+                 choices=list(
+                   Linear="linear",
+                   Logarithmic="logarithmic"
+                 ))
   )
 )
 
@@ -371,35 +391,20 @@ world_case_summary <- reactive(dataset$world_cases_jh() %>%
 
 output$worldcaseslinear <- renderHighchart(
   highchart()  %>%
-    hc_title(text="Confirmed Cases and Deaths (Global, Linear Scale)") %>%
-    hc_yAxis(title="") %>% 
+    hc_title(text="Cases") %>%
+    hc_yAxis(title="", type=input$worldscale) %>% 
     hc_xAxis(type="datetime") %>% 
     hc_add_series(type="line", 
                   mapping=hcaes(x=date, y=val, group=Series), 
                   data=world_case_summary() %>% 
-                    select(date, Confirmed=confirmed, Deaths=dead) %>%
+                    select(date, Confirmed=confirmed, Deaths=dead, 
+                           Recovered=recovered) %>%
+                    mutate(Active = Confirmed - Deaths - Recovered) %>% 
                     gather(key="Series", value="val", -date)
                     )
 )
 
 highchartOutput("worldcaseslinear")
-```
-
-### World Cases Logarithmic
-
-```{r worldcaseslog}
-output$worldcaseslog <- renderHighchart(
-  highchart() %>% 
-    hc_yAxis(type = "logarithmic", gridLineWidth = 0, title="") %>%
-    hc_xAxis(type="datetime") %>% 
-    hc_title(text="Confirmed Cases and Deaths (Global, Logarithmic Scale)") %>% 
-    hc_add_series(type="line", mapping=hcaes(x=date, y=val, group=Series), 
-                  data = world_case_summary() %>% 
-                    select(date, Confirmed=confirmed, Deaths=dead) %>%
-                    gather(key="Series", value="val", -date)) 
-)
-
-highchartOutput("worldcaseslog")
 ```
 
 ### New Cases Per Day

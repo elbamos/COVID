@@ -73,6 +73,11 @@ geometries <- counties %>%
 rm(counties)
 rm(states)
 
+continental_us <- geometries %>%
+  filter(! state %in% c("Alaska", "Hawaii")) %>% 
+  ungroup() %>% 
+  summarize(us = st_combine(geometry)) 
+
 
 # --- JOHNS HOPKINS ---
 url_world_confirmed <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
@@ -229,7 +234,7 @@ dataset <- reactiveValues(
 ```
 
 ```{r setupdatapolling,include=F}
-updateFreq = 200000
+updateFreq = 10 * 60 * 1000
 
 get_url_date <- function(url) {
   resp <- httr::HEAD(url)
@@ -259,7 +264,7 @@ dataset$cases_state_nyt <- reactivePoll(
 
 dataset$world_cases_jh <- reactivePoll(
   intervalMillis = updateFreq, session=NULL,
-  checkFunc = function() max(get_url_date(url_world_confirmed),
+  checkFunc = function() min(get_url_date(url_world_confirmed),
                              get_url_date(url_world_dead), 
                              get_url_date(url_world_recovered)), 
   valueFunc = function() {
@@ -417,7 +422,8 @@ output$dailynewcases <- renderHighchart(
     hc_xAxis(type="datetime") %>% 
     hc_add_series(type="column", mapping=hcaes(x=date, y=New), 
                   data= world_case_summary() %>% 
-                    select(date, New=new_confirmed))
+                    select(date, New=new_confirmed),
+                  name="New Cases")
 )
 
 highchartOutput("dailynewcases")
@@ -449,13 +455,15 @@ output$usinputs <- renderUI({
   )
 })
 
+output$datetoshow <- renderText(input$usdate)
+
 uiOutput("usinputs")
 ```
 
 Row
 -----------------------------------------------
 
-### US Map
+### US Map `r uiOutput("datetoshow")`
 
 ```{r usmap}
 us_map_filter <- reactive(geometries %>% 
@@ -483,14 +491,17 @@ us_cases <- reactive({
 bins <- c(1, 50, 100, 500, 1000, 5000, 7500, 10000, 15000, 25000, 50000, 75000, Inf)
 pal <- colorBin("YlOrRd", domain = c(0, 100000), bins = bins)
 
+usbox <- st_bbox(continental_us$us)
+uscenter <- st_centroid(continental_us$us)
+
 output$usview <- renderLeaflet({
   leaflet(
     options=leafletOptions(minZoom=4)
   ) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
     addLegend(pal=pal, values=bins, opacity=0.7) %>% 
-    setMaxBounds(-167.276413, 5.499550, -52.233040, 83.162102) %>%
-    setView(lat=41.836944, lng=-87.684722, zoom=4)
+    setMaxBounds(usbox[1], usbox[2], usbox[3], usbox[4]) %>%
+    setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=4)
 })
 
 observe({
@@ -564,7 +575,8 @@ output$usdailynewcases <- renderHighchart(
                     arrange(date) %>%
                     mutate(new_confirmed = cases - lag(cases, 1, default=0)) %>%
                     select(date, New=new_confirmed), 
-                  mapping=hcaes(x=date, y=New))
+                  mapping=hcaes(x=date, y=New),
+                  name="New Cases")
 )
 
 highchartOutput("usdailynewcases")
@@ -586,7 +598,8 @@ output$ushospperday <- renderHighchart({
         filter(Hospitalizations > 0) %>% 
         arrange(date) %>% 
         mutate(Hospitalizations = Hospitalizations - lag(Hospitalizations, default=0)), 
-      mapping=hcaes(x=date, y=Hospitalizations)
+      mapping=hcaes(x=date, y=Hospitalizations),
+      name="New Hospitalizations"
     )
 })
 

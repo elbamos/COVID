@@ -79,6 +79,9 @@ rm(states)
 
 
 # --- JOHNS HOPKINS ---
+url_world_confirmed <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+url_world_dead <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
+
 confirmed <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
 
 locations <- confirmed[, 1:4] %>%
@@ -104,47 +107,65 @@ geometries %<>%
                      loc_id)
             )
 
+process_world_jh <- function(confirmed_in, dead_in) {
+  confirmed_by_date <- confirmed_in %>% 
+    inner_join(
+      locations %>% 
+        select(`Province/State`=Sublocation, `Country/Region`=Location, loc_id)
+    ) %>%
+    select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
+    gather(key="date", value="confirmed", -loc_id)
+  
+  dead <- dead_in %>% 
+    inner_join(
+      locations %>% 
+        select(`Province/State`=Sublocation, `Country/Region`=Location, loc_id)
+    ) %>%
+    select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
+    gather(key="date", value="dead", -loc_id)
+  
+  full_join(confirmed_by_date, dead) %>%
+    group_by(loc_id) %>% 
+    mutate(date = mdy(date)) %>%
+    arrange(date) %>%
+    mutate(
+      new_dead = dead - lag(dead, 1, default=0),
+      new_confirmed = confirmed - lag(confirmed, 1, default=0)
+    )
+}
 
-confirmed_by_date <- confirmed %>% 
-  inner_join(
-    locations %>% select(`Province/State`=Sublocation, `Country/Region`=Location, loc_id)
-  ) %>%
-  select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
-  gather(key="date", value="confirmed", -loc_id)
+dead <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv")
 
-dead <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv") %>% 
-  inner_join(
-    locations %>% select(`Province/State`=Sublocation, `Country/Region`=Location, loc_id)
-  ) %>%
-  select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
-  gather(key="date", value="dead", -loc_id)
-
-world_cases_jh <- full_join(confirmed_by_date, dead) %>%
-  group_by(loc_id) %>% 
-  mutate(date = mdy(date)) %>%
-  arrange(date) %>%
-  mutate(
-    new_dead = dead - lag(dead, 1, default=0),
-    new_confirmed = confirmed - lag(confirmed, 1, default=0)
-  )
+world_cases_jh <- process_world_jh(confirmed, dead)
 
 
 # ------ NY TIMES
-cases_county_nyt <- read_csv("./covid-19-data/us-counties.csv") %>% 
+url_ny_county <- "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv"
+url_ny_state <- "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv"
+
+process_ny_county <- function(x) x %>% 
   left_join(locations %>% 
               select(county = Subsublocation, state=Sublocation, loc_id)) %>%
   select(-county, -state)
-  
-cases_state_nyt <- read_csv("./covid-19-data/us-states.csv") %>% 
+
+process_ny_state <- function(x) x %>% 
   filter(! state %in% c(78, 66)) %>% # Exclude virgin islands and guam
   left_join(locations %>% 
               filter(is.na(Subsublocation)) %>% 
               select(state=Sublocation, loc_id)) %>% 
   select(-state)
 
+cases_county_nyt <- read_csv("./covid-19-data/us-counties.csv") %>%
+  process_ny_county()
+  
+cases_state_nyt <- read_csv("./covid-19-data/us-states.csv") %>% 
+  process_ny_state()
 
-# ------ COVID Tracking Project
-covid_track = fromJSON("https://covidtracking.com/api/states/daily") %>%
+
+# ------------ COVID Tracking Project
+url_covid_track <- "https://covidtracking.com/api/states/daily"
+
+process_covid_track <- function(x) x %>%
   mutate(
     date = ymd(date)
   ) %>% inner_join(
@@ -156,8 +177,13 @@ covid_track = fromJSON("https://covidtracking.com/api/states/daily") %>%
     locations %>% filter(is.na(Subsublocation)) %>% select(state=Sublocation, loc_id)
   )
 
-## Intervention data
-interventions <- read_csv("covid19-intervention-data/npi_data_03-24-2020.csv") %>%
+covid_track = fromJSON("https://covidtracking.com/api/states/daily") %>%
+  process_covid_track()
+
+# ---------------  Intervention data
+url_interventions <- "https://raw.githubusercontent.com/Keystone-Strategy/covid19-intervention-data/master/npi_data_03-24-2020.csv"
+
+process_interventions <- function(x) x %>%
   select(-matches("X[0-9]+")) %>%
   mutate(
     state.abb = str_match(Intervention, "., ([A-Z]+)")[, 2], 
@@ -180,6 +206,9 @@ interventions <- read_csv("covid19-intervention-data/npi_data_03-24-2020.csv") %
   inner_join(locations %>% select(county=Subsublocation, state.name=Sublocation, loc_id)) %>% 
   select(-matches("state"), -county)
 
+interventions <- read_csv("covid19-intervention-data/npi_data_03-24-2020.csv") %>%
+  process_interventions()
+
 
 dataset <- reactiveValues(
   world_cases_jh = world_cases_jh, 
@@ -190,6 +219,53 @@ dataset <- reactiveValues(
 )
 ```
 
+```{r setupdatapolling,include=F}
+updateFreq = 10000
+
+get_url_date <- function(url) {
+  resp <- httr::HEAD(url)
+  dmy_hms(resp$headers$date)
+}
+
+dataset$covid_track <- reactivePoll(
+  intervalMillis = updateFreq, session=NULL,
+  checkFunc = function() get_url_date(url_covid_track),
+  valueFunc = function() fromJSON("https://covidtracking.com/api/states/daily") %>%
+    process_covid_track()
+)
+
+dataset$cases_county_nyt <- reactivePoll(
+  intervalMillis = updateFreq, session=NULL,
+  checkFunc = function() get_url_date(url_ny_county), 
+  valueFunc = function() read_csv(url_ny_county) %>% 
+    process_ny_county()
+)
+
+dataset$cases_state_nyt <- reactivePoll(
+  intervalMillis = updateFreq, session=NULL,
+  checkFunc = function() get_url_date(url_ny_state), 
+  valueFunc = function() read_csv(url_ny_state) %>%
+    process_ny_state()
+)
+
+dataset$world_cases_jh <- reactivePoll(
+  intervalMillis = updateFreq, session=NULL,
+  checkFunc = function() max(get_url_date(url_world_confirmed),
+                             get_url_date(url_world_dead)), 
+  valueFunc = function() {
+    confirmed <- read_csv(url_world_confirmed)
+    dead <- read_csv(url_world_dead) 
+    process_world_jh(confirmed, dead)
+  }
+)
+
+dataset$interventions <- reactivePoll(
+  intervalMillis = updateFreq, session=NULL,
+  checkFunc = function() get_url_date(url_interventions), 
+  valueFunc = function() read_csv(url_interventions) %>%
+    process_interventions()
+)
+```
 
 World Overview
 =======================================================================
@@ -220,8 +296,8 @@ Row
 world_cases <- reactive({
   req(input$worlddate)
   #req(input$worlduslevel) 
-  todisplay <- dataset$world_cases_jh %>% 
-    dplyr::filter(date == input$worlddate) %>% glimpse()
+  todisplay <- dataset$world_cases_jh() %>% 
+    dplyr::filter(date == input$worlddate)
   
 #  if (input$worlduslevel == "State") {
 #    todisplay %<>% anti_join(
@@ -284,7 +360,7 @@ Row {data-height=300}
 ### World Cases Flat
 
 ```{r worldcasesflat}
-world_case_summary <- reactive(dataset$world_cases_jh %>%
+world_case_summary <- reactive(dataset$world_cases_jh() %>%
   ungroup() %>%
   group_by(date) %>%
   select(-loc_id) %>%
@@ -372,7 +448,7 @@ Row
 us_map_filter <- reactive(geometries %>% 
   filter(! is.na(county)) %>% 
   left_join(
-    dataset$cases_county_nyt %>%
+    dataset$cases_county_nyt() %>%
       filter(cases > 0) %>% 
       inner_join(locations) %>% 
       rename(state=Sublocation, county=Subsublocation) %>% 
@@ -430,7 +506,7 @@ Row
 ### US Cases
 
 ```{r uscasesflat}
-us_case_summary <- reactive(dataset$cases_state_nyt %>%
+us_case_summary <- reactive(dataset$cases_state_nyt() %>%
   ungroup() %>%
   select(date, cases, deaths) %>% 
   group_by(date) %>%
@@ -449,7 +525,7 @@ output$uscaseslinear <- renderHighchart({
         select(date, Confirmed=cases, Deaths=deaths) %>% 
         gather(key="Series", value="val", -date) %>% 
         bind_rows(
-          dataset$covid_track %>% 
+          dataset$covid_track() %>% 
             group_by(date) %>% 
             summarize(val = max(hospitalized, na.rm=T)) %>%
             mutate(Series="Hospitalizations")
@@ -491,7 +567,7 @@ output$ushospperday <- renderHighchart({
     hc_xAxis(type="datetime") %>% 
     hc_add_series(
       type="column",
-      data=dataset$covid_track %>% 
+      data=dataset$covid_track() %>% 
         group_by(date) %>% 
         summarize(Hospitalizations = max(hospitalized, na.rm=T)) %>%
         filter(Hospitalizations > 0) %>% 
@@ -516,7 +592,7 @@ checkboxGroupInput("testingstates", label = "States to Show",
                    selected=state.name)
 
 covid_track_to_show <- reactive(
-  dataset$covid_track %>% 
+  dataset$covid_track() %>% 
     semi_join(
       locations %>% filter(Sublocation %in% input$testingstates,
                            is.na(Subsublocation))
@@ -608,14 +684,14 @@ Interventions
 
 ```{r munge_intervention_data}
 locs_with_intervention <- reactive(
-  dataset$interventions %>% group_by(loc_id) %>% summarize()
+  dataset$interventions() %>% group_by(loc_id) %>% summarize()
 )
 
-counties_with_intervention <- reactive(dataset$cases_county_nyt %>% semi_join(locs_with_intervention())
+counties_with_intervention <- reactive(dataset$cases_county_nyt() %>% semi_join(locs_with_intervention())
 )
 
-interventions_with_cases <- reactive(dataset$interventions %>% 
-  inner_join(dataset$cases_county_nyt) %>% 
+interventions_with_cases <- reactive(dataset$interventions() %>% 
+  inner_join(dataset$cases_county_nyt()) %>% 
   inner_join(locations) %>%
   rename(county=Subsublocation, state=Sublocation) %>%
   mutate(name = paste0(county, ", ", state)) %>%
@@ -666,7 +742,7 @@ counties_to_show <- reactive(counties_with_intervention() %>%
     inner_join(locations) %>% 
     rename(county=Subsublocation, state=Sublocation) %>%
     mutate(name = paste0(county, ", ", state)) %>%
-    left_join(dataset$interventions) 
+    left_join(dataset$interventions()) 
 )
 
 interventions_with_cases <- reactive(counties_to_show() %>% filter(! is.na(intervention)))

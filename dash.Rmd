@@ -32,11 +32,6 @@ library(highcharter)
 library(htmltools)
 library(sf)
 
-# Epidemiology
-library(earlyR)
-library(incidence)
-library(EpiModel)
-
 # Other
 library(jsonlite)
 ```

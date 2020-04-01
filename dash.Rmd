@@ -8,12 +8,8 @@ runtime: shiny
 ---
 
 ```{r todods,include=F}
-# TODO: Get max dates on sliders to sync w/ data
-
 # TODO: Add charts for individual states & counties
 # TODO: Add proportions of populations as a view for US
-# TODO: Add chart showing interventions
-# TODO: Handle NYC and Washington, DC in intervention data
 # TODO: Animate the bar charts next to the maps
 ```
 
@@ -220,7 +216,7 @@ dataset <- reactiveValues(
 ```
 
 ```{r setupdatapolling,include=F}
-updateFreq = 10000
+updateFreq = 200000
 
 get_url_date <- function(url) {
   resp <- httr::HEAD(url)
@@ -277,14 +273,20 @@ Inputs {.sidebar}
 ### Input
 
 ```{r}
-sliderInput("worlddate", 
+output$worldoverviewinputs <- renderUI(
+  tagList(
+    sliderInput("worlddate", 
             "Date:", 
             min=min(world_cases_jh$date), 
-            max=max(world_cases_jh$date), 
+            max=max(dataset$world_cases_jh()$date), 
             value=max(world_cases_jh$date), 
             timeFormat="%Y-%m-%d",
             animate=T)
+  )
+)
+
 #radioButtons("worlduslevel", "US Detail", choices=c("Country", "State", "County"), selected="State")
+uiOutput("worldoverviewinputs")
 ```
 
 
@@ -426,17 +428,23 @@ Inputs {.sidebar}
 ### Input
 
 ```{r}
-sliderInput("usdate", 
+output$usinputs <- renderUI({
+  nydates <- dataset$cases_county_nyt()
+  tagList(
+    sliderInput("usdate", 
             "Date:", 
-            min=min(cases_county_nyt$date), 
-            max=Sys.Date() - 1, 
-            value=Sys.Date() - 1, 
+            min=min(nydates$date), 
+            max=max(nydates$date), 
+            value=max(nydates$date), 
             timeFormat="%Y-%m-%d",
-            animate=T)
-
-radioButtons("uslog", "Scale", choices=list(Linear="linear", 
+            animate=T), 
+    radioButtons("uslog", "Scale", choices=list(Linear="linear", 
                                             Logarithmic="logarithmic"), 
              selected="linear")
+  )
+})
+
+uiOutput("usinputs")
 ```
 
 Row
@@ -704,18 +712,22 @@ Inputs {.sidebar}
 -----------------------------------------------------------------------
 
 ```{r interventioninputs}
-avail_states <- interventions %>% 
-  inner_join(locations) %>%
-  use_series(Sublocation) %>% unique() %>% sort()
-
-checkboxGroupInput("interventionstates", label = "States to Show", 
+output$interventioninputs <- renderUI({
+  avail_states <- dataset$interventions() %>%
+    inner_join(locations) %>%
+    use_series(Sublocation) %>% unique() %>% sort()
+  
+  tagList(
+      checkboxGroupInput("interventionstates", label = "States to Show", 
                    choices = avail_states, 
-                   selected=c("New York", "California"))
+                   selected=c("New York", "California")),
+      radioButtons("interventionlog", label="Log or Linear", choices=c("logarithmic", "linear"), selected="logarithmic"),
+      sliderInput("interventionstartcases", label="Start # of Cases", 
+              min=1, max=1000, value=10)
+  )
+})
 
-radioButtons("interventionlog", label="Log or Linear", choices=c("logarithmic", "linear"), selected="logarithmic")
-
-sliderInput("interventionstartcases", label="Start # of Cases", 
-            min=1, max=1000, value=10)
+uiOutput("interventioninputs")
 ```
 
 Row 

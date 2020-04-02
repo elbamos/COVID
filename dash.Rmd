@@ -76,6 +76,8 @@ get_new_data_json <- function(tag, url, f) {
 ```{r global,include=F}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
+zips <- USAboundaries::us_zipcodes() %>%
+  filter(str_starts(zipcode, "10") | str_starts(zipcode, "11"))
 
 geometries <- counties %>%
   select(county=name, state=state_name, geometry, aland, awater) %>%
@@ -315,6 +317,22 @@ dataset$interventions <- reactivePoll(
   valueFunc = function() get_new_data("Interventions", 
                                       url_interventions, 
                                       process_interventions)
+)
+```
+
+```{r data_nyhealth}
+url_nyzipcode <- "https://raw.githubusercontent.com/nychealth/coronavirus-data/master/tests-by-zcta.csv"
+
+process_nyzipcode <- function(x) x %>% 
+  filter(! is.na(MODZCTA)) %>% 
+  rename(zipcode=MODZCTA)
+
+dataset$nyzipcode <- reactivePoll(
+  intervalMillis = updateFreq, session=NULL,
+  checkFunc = function() get_url_date(url_nyzipcode), 
+  valueFunc = function() get_new_data("NY Testing by Zipcode", 
+                                      url_interventions, 
+                                      process_nyzipcode)
 )
 ```
 
@@ -738,6 +756,59 @@ output$ustestingbystateinc <- renderHighchart(
 
 highchartOutput("ustestingbystateinc")
 ```
+
+New York City Testing
+===================================================
+
+## New York City
+
+```{r usmap}
+nyzip_geoms <- reactive(
+  zips %>% 
+    inner_join(dataset$nyzipcode() %>% mutate(zipcode=as.character(zipcode))) %>% 
+    mutate(
+      lat = map(geometry, ~ .[[1]][1]), 
+      lng=map(geometry, ~.[[2]][1]), 
+      lat=unlist(lat), 
+      lng=unlist(lng), 
+      rate = Positive / Total
+    )
+)
+
+leaflet(data=together) %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addCircles(group="Positive", weight=0, opacity=0, fillOpacity = 0.3, 
+             color="Blue", radius = ~(sqrt(Positive) * 30))
+
+output$nyview <- renderLeaflet({
+  leaflet(
+    options=leafletOptions(minZoom=4)
+  ) %>% 
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addLegend(pal=pal, values=bins, opacity=0.7) %>% 
+    setMaxBounds(usbox[1], usbox[2], usbox[3], usbox[4]) %>%
+    setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=4)
+})
+
+observe({
+  leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
+  clearShapes()  %>%
+  addPolygons(opacity = .4,
+              group="Confirmed Cases", 
+              weight = .3,
+              fillColor = ~pal(cases),
+              fillOpacity = .7,
+              label = ~label, 
+              highlight = highlightOptions(
+                weight=5, fillOpacity=1.0, bringToFront = TRUE
+                )
+              ) %>%
+    addLayersControl(overlayGroups=c("Confirmed Cases")) 
+})
+
+leafletOutput("usview")
+```
+
 
 Interventions
 ====================================================

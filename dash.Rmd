@@ -57,11 +57,9 @@ get_url_date <- function(url) {
 }
 
 get_new_data <- function(tag, url, f) {
-  print(paste("getting data", tag))
   out <- read_csv(url) %>% 
     f()
   update_dataset_dt_url(tag, url)
-  print(paste("got data", tag))
   out 
 }
 
@@ -200,7 +198,6 @@ dataset$recoveries <- reactivePoll(
 
 
 world_cases_jh <- reactive({
-  print("doing world")
   out <- 
    full_join(dataset$confirmed(), dataset$dead()) %>%
      full_join(dataset$recoveries()) %>%
@@ -212,7 +209,6 @@ world_cases_jh <- reactive({
        new_dead = dead - lag(dead, 1, default=0),
        new_confirmed = confirmed - lag(confirmed, 1, default=0)
      )
-  print("done world")
   out
 })
 ```
@@ -223,24 +219,20 @@ url_ny_county <- "https://raw.githubusercontent.com/nytimes/covid-19-data/master
 url_ny_state <- "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv"
 
 process_ny_county <- function(x) {
-  print("doing ny county")
   out <- x %>% 
     left_join(locations %>% 
                 select(county = Subsublocation, state=Sublocation, loc_id)) %>%
     select(-county, -state)
-  print("done ny county")
   out
 }
 
 process_ny_state <- function(x) {
-  print("doing ny state")
   out <- x %>% 
   filter(! state %in% c(78, 66)) %>% # Exclude virgin islands and guam
   left_join(locations %>% 
               filter(is.na(Subsublocation)) %>% 
               select(state=Sublocation, loc_id)) %>% 
   select(-state)
-  print("done ny state")
   out
 }
 

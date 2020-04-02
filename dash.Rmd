@@ -76,8 +76,13 @@ get_new_data_json <- function(tag, url, f) {
 ```{r global,include=F}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
+
+load("badzips.Rda")
 zips <- USAboundaries::us_zipcodes() %>%
-  filter(str_starts(zipcode, "10") | str_starts(zipcode, "11"))
+  filter(str_starts(zipcode, "10") | str_starts(zipcode, "11"),
+         ! zipcode %in% badzips)
+
+
 
 geometries <- counties %>%
   select(county=name, state=state_name, geometry, aland, awater) %>%
@@ -308,7 +313,7 @@ process_interventions <- function(x) x %>%
     date = mdy(date)
   ) %>% 
   inner_join(locations %>% select(county=Subsublocation, state.name=Sublocation, loc_id)) %>% 
-  select(-matches("state"), -county)
+  select(-matches("state"), -county) %>% glimpse()
 
 
 dataset$interventions <- reactivePoll(
@@ -331,7 +336,7 @@ dataset$nyzipcode <- reactivePoll(
   intervalMillis = updateFreq, session=NULL,
   checkFunc = function() get_url_date(url_nyzipcode), 
   valueFunc = function() get_new_data("NY Testing by Zipcode", 
-                                      url_interventions, 
+                                      url_nyzipcode, 
                                       process_nyzipcode)
 )
 ```
@@ -421,7 +426,7 @@ output$worldview <- renderLeaflet({
 
 sizer <- 2000
 
-observe({
+observeEvent(world_cases(), {
   leafletProxy("worldview", data=world_cases(), deferUntilFlush=T) %>%
     clearShapes() %>% 
     addCircles(group="Confirmed", weight=0, opacity=0, fillOpacity = 0.3, 
@@ -556,7 +561,7 @@ output$usview <- renderLeaflet({
     setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=4)
 })
 
-observe({
+observeEvent(us_cases(), {
   leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
   clearShapes()  %>%
   addPolygons(opacity = .4,
@@ -760,9 +765,9 @@ highchartOutput("ustestingbystateinc")
 New York City Testing
 ===================================================
 
-## New York City
+### New York City
 
-```{r usmap}
+```{r nymap}
 nyzip_geoms <- reactive(
   zips %>% 
     inner_join(dataset$nyzipcode() %>% mutate(zipcode=as.character(zipcode))) %>% 
@@ -775,38 +780,23 @@ nyzip_geoms <- reactive(
     )
 )
 
-leaflet(data=together) %>% 
-  addProviderTiles(providers$CartoDB.Positron) %>%
-  addCircles(group="Positive", weight=0, opacity=0, fillOpacity = 0.3, 
-             color="Blue", radius = ~(sqrt(Positive) * 30))
+ny_bbox <- st_bbox(zips$geometry)
+ny_centroid <- st_centroid(zips$geometry)
+rate_pal <- colorNumeric("Reds", domain=c(0, 1))
 
 output$nyview <- renderLeaflet({
-  leaflet(
-    options=leafletOptions(minZoom=4)
-  ) %>% 
-    addProviderTiles(providers$CartoDB.Positron) %>%
-    addLegend(pal=pal, values=bins, opacity=0.7) %>% 
-    setMaxBounds(usbox[1], usbox[2], usbox[3], usbox[4]) %>%
-    setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=4)
+  leaflet(nyzip_geoms()) %>% 
+    addProviderTiles(providers$CartoDB.Positron) %>% 
+    setMaxBounds(ny_bbox[1], ny_bbox[2], ny_bbox[3], ny_bbox[4]) %>%
+    setView(lat=ny_centroid[[1]][2], lng=ny_centroid[[1]][1], zoom=10) %>%
+    addLegend(pal=rate_pal, values=c(0, .25, .5, .75, 1), 
+              title="Positive Rate")  %>%
+    addCircles(weight=0, opacity=.3, stroke=F, fill=T, 
+               fillOpacity = 0.4, fillColor=~rate_pal(rate), 
+               radius = ~(sqrt(Positive) * 30)) 
 })
 
-observe({
-  leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
-  clearShapes()  %>%
-  addPolygons(opacity = .4,
-              group="Confirmed Cases", 
-              weight = .3,
-              fillColor = ~pal(cases),
-              fillOpacity = .7,
-              label = ~label, 
-              highlight = highlightOptions(
-                weight=5, fillOpacity=1.0, bringToFront = TRUE
-                )
-              ) %>%
-    addLayersControl(overlayGroups=c("Confirmed Cases")) 
-})
-
-leafletOutput("usview")
+leafletOutput("nyview")
 ```
 
 

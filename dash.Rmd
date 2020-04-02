@@ -813,24 +813,6 @@ leafletOutput("usview")
 Interventions
 ====================================================
 
-```{r munge_intervention_data}
-locs_with_intervention <- reactive(
-  dataset$interventions() %>% group_by(loc_id) %>% summarize()
-)
-
-counties_with_intervention <- reactive(dataset$cases_county_nyt() %>% semi_join(locs_with_intervention())
-)
-
-interventions_with_cases <- reactive(dataset$interventions() %>% 
-  inner_join(dataset$cases_county_nyt()) %>% 
-  inner_join(locations) %>%
-  rename(county=Subsublocation, state=Sublocation) %>%
-  mutate(name = paste0(county, ", ", state)) %>%
-  select(name, cases, intervention, date)
-)
-
-```
-
 Inputs {.sidebar}
 -----------------------------------------------------------------------
 
@@ -857,8 +839,23 @@ Row
 ---------------------------------------------------------------------- 
 
 ```{r interventions}
-relative_dates <- reactive(
-  counties_with_intervention() %>% 
+interventions_with_cases <- reactive({
+  interventions <- dataset$interventions()
+  
+  locs_with_intervention <- interventions %>% group_by(loc_id) %>% summarize()
+  
+  dataset$cases_county_nyt() %>%
+    semi_join(locs_with_intervention) %>%
+    left_join(interventions) %>%
+    inner_join(locations) %>% 
+    mutate(name = paste0(Subsublocation, ", ", Sublocation))
+})
+
+filtered_interventions_with_cases <- reactive({
+  req(input$interventionstartcases)
+  req(input$interventionstates)
+  
+  interventions_with_cases() %>% 
     semi_join(
       locations %>% 
         filter(Sublocation %in% input$interventionstates)
@@ -866,25 +863,16 @@ relative_dates <- reactive(
     group_by(loc_id) %>%
     arrange(date) %>% 
     filter(cases >= input$interventionstartcases) %>%
-    filter(row_number() == 1) %>%
-    select(loc_id, first_date=date)
-)
+    mutate(days = as.numeric(date - min(date)))
+})
 
-counties_to_show <- reactive(counties_with_intervention() %>% 
-    inner_join(relative_dates()) %>%
-    filter(date >= first_date) %>%
-    mutate(days = as.numeric(date - first_date)) %>%   
-    inner_join(locations) %>% 
-    rename(county=Subsublocation, state=Sublocation) %>%
-    mutate(name = paste0(county, ", ", state)) %>%
-    left_join(dataset$interventions()) 
-)
+intervention_points <- reactive(filtered_interventions_with_cases() %>% 
+                                  filter(! is.na(intervention)))
 
-interventions_with_cases <- reactive(counties_to_show() %>% filter(! is.na(intervention)))
-
-output$interventions <- renderHighchart(
+output$interventions <- renderHighchart({
+  req(input$interventionlog)
   highchart() %>% 
-    hc_add_series(data=counties_to_show(), type="line", 
+    hc_add_series(data=filtered_interventions_with_cases(), type="line", 
                      mapping=hcaes(x=days, y=cases, group=name), 
                      colorAxis=0,
                      lineWidth=1, 
@@ -893,14 +881,14 @@ output$interventions <- renderHighchart(
                     pointFormat="Date: {point.date}<br/>Cases: {point.cases}"
                   )) %>% 
     hc_yAxis(title="Cases", type=input$interventionlog, min=1) %>%
-    hc_add_series(data=interventions_with_cases(), type="point", 
+    hc_add_series(data=intervention_points(), type="point", 
                   mapping=hcaes(x=days, y=cases, fill=name,
                                 color=name, group=intervention), 
                   colorAxis=0, tooltip=list(
                     headerFormat="<span style='color:{point.color}'>●</span> <span style='font-size: 12px'> {series.name}</span><br/>",
                     pointFormat="{point.name}<br/>Date: {point.date}<br/>Cases: {point.cases}"
                   ))
-)
+})
 
 highchartOutput("interventions")
 ```

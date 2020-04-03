@@ -71,6 +71,7 @@ get_new_data_json <- function(tag, url, f) {
 }
 ```
 
+
 ```{r global,include=F}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
@@ -80,32 +81,46 @@ zips <- USAboundaries::us_zipcodes() %>%
   filter(str_starts(zipcode, "10") | str_starts(zipcode, "11"),
          ! zipcode %in% badzips)
 
+load("./census_data.Rda")
 
+census_data %<>%
+  select(geoid=GEOID, estimate, names) %>% 
+  spread(key="names", value="estimate") %>%
+  mutate(pop = male + female)
 
 geometries <- counties %>%
-  select(county=name, state=state_name, geometry, aland, awater) %>%
+  select(county=name, geoid, state=state_name, geometry, aland, awater) %>%
   rbind(
-    states %>% select(state=state_name, geometry, aland, awater) %>%
-      mutate(county=NA), 
+    states %>% select(geoid, state=state_name, geometry, aland, awater) %>%
+      mutate(county=NA)
+  ) %>%
+  left_join(census_data) %>% 
+  rbind(
     counties %>% 
       filter(
         state_name == "New York", 
         name %in% c("Kings", "Queens", "New York", "Bronx", "Staten Island", "Richmond")
       ) %>% 
+      left_join(census_data) %>% 
       summarize(
         geometry = st_combine(geometry), 
         aland = sum(aland), 
-        awater = sum(awater)
+        awater = sum(awater), 
+        male = sum(male), 
+        female = sum(female), 
+        housing_units = sum(housing_units), 
+        pop = sum(pop)
       ) %>%
       mutate(
         state = "New York", 
-        county = "New York City"
+        county = "New York City",
+        geoid = NA
       )
   ) %>% 
   mutate(
     centroid = sf::st_centroid(geometry), 
-    lat = map(centroid, ~.x[[1]][1]), 
-    lng = map(centroid, ~.x[[2]][1]), 
+    lat = map(centroid, ~.x[[2]][1]), 
+    lng = map(centroid, ~.x[[1]][1]), 
     lat = unlist(lat), 
     lng = unlist(lng)
   ) %>% select(-centroid) 
@@ -333,6 +348,33 @@ dataset$nyzipcode <- reactivePoll(
 )
 ```
 
+```{r pull_census, include=F,eval=F}
+library(tidycensus)
+
+census_to_pull <- data.frame(
+  variable = c("B00001_001", # Pop
+            "B00002_001", # Housing units, 
+            "B01001_002", # Male
+            "B01001_026"  # Female
+            ),
+  names = c("pop", "housing_units", "male", "female")
+)
+
+census_data <- get_acs(geography = "county", year = 2015, 
+                       variables=as.character(census_to_pull$variable)
+                       ) %>% 
+  bind_rows(
+    get_acs(geography = "state", year = 2015, 
+                       variables=as.character(census_to_pull$variable)
+                       )
+  ) %>%
+  inner_join(census_to_pull)
+
+save(census_data, file="census_data.Rda")
+```
+
+
+
 World Overview
 =======================================================================
 
@@ -502,7 +544,14 @@ output$usinputs <- renderUI({
             animate=T),
     radioButtons("uslog", "Scale", choices=list(Linear="linear", 
                                             Logarithmic="logarithmic"), 
-             selected="linear")
+             selected="linear"),
+    radioButtons("usshade", "Map Shading",
+                 choices=c("Pop Density", 
+                           "Housing Density", 
+                           "Occupancy Density", 
+                           "Infection Rate", 
+                           "Cases"), 
+                 selected="Pop Density")
   )
 })
 
@@ -521,24 +570,66 @@ us_map_filter <- reactive(geometries %>%
     dataset$cases_county_nyt() %>%
       filter(cases > 0) %>% 
       inner_join(locations) %>% 
-      rename(state=Sublocation, county=Subsublocation) %>% 
-      mutate(
-        label = paste0("<font color='blue'>", 
-                       county, ", ", state, "</font><br/>", 
-                       "Confirmed Cases: ",  cases, "<br/>", 
-                       "Deaths: ", deaths, "<br/>"),
-        label = map(label, HTML)
-      )
-  )
+      rename(state=Sublocation, county=Subsublocation)
+  ) %>% 
+    mutate(
+      pop_density = pop / aland, 
+      housing_density = housing_units / aland, 
+      occupancy_density = pop / housing_units,
+      rate = cases / pop, 
+      label = paste0("<font color='blue'>", 
+                     county, ", ", state, "</font><br/>", 
+                     "Population: ", pop, "<br/>",
+                     "Confirmed Cases: ",  cases, "<br/>", 
+                     "Infection Rate: ", rate, "<br/>",
+                     "Deaths: ", deaths, "<br/>"),
+      label = map(label, HTML)
+    )
 )
 
 us_cases <- reactive({
   req(input$usdate)
-  us_map_filter() %>% filter(date == input$usdate) 
+  us_map_filter() %>% filter(date == input$usdate, cases > 0) 
 })
 
-bins <- c(1, 50, 100, 500, 1000, 5000, 7500, 10000, 15000, 25000, 50000, 75000, Inf)
-pal <- colorBin("YlOrRd", domain = c(0, 100000), bins = bins)
+pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(1e-9, 1e-3)))
+pal_density_hous <- colorNumeric("Greens", domain = log10(c(1, 1e-3)))
+pal_density_occ <- colorNumeric("Blues", domain = c(0, 6))
+pal_rate <- colorNumeric("Reds", domain = log10(c(1, 1000)))
+pal_cases <- colorNumeric("Reds", domain=log10(10^(0:6)))
+
+vis_options <- list(
+  "Pop Density" = list(
+    pal = quote(~pal_density_pop(log10(pop_density))), 
+    legend_pal = pal_density_pop, 
+    legend_vals = log10(10^(0:-3)),
+    legend_trans = labelFormat(transform=function(x) 10^x)
+  ), 
+  "Housing Density" = list(
+    pal = quote(~pal_density_hous(log10(housing_density))), 
+    legend_pal = pal_density_hous, 
+    legend_vals = log10(10^(0:-3)),
+    legend_trans = labelFormat(transform=function(x) 10^x)
+  ), 
+  "Occupancy Density" = list(
+    pal = quote(~pal_density_occ(occupancy_density)), 
+    legend_pal = pal_density_occ, 
+    legend_vals = 0:6,
+    legend_trans = identity
+  ), 
+  "Infection Rate" = list(    
+    pal = quote(~pal_rate(rate)), 
+    legend_pal = pal_rate, 
+    legend_vals = log10(10^(0:4)),
+    legend_trans = labelFormat(transform=function(x) 10^x)
+    ), 
+  "Cases" = list(
+    pal = quote(~pal_cases(cases)), 
+    legend_pal = pal_cases, 
+    legend_vals = log10(10^(0:6)),
+    legend_trans = labelFormat(transform=function(x) 10^x)
+  )
+)
 
 usbox <- st_bbox(continental_us$us)
 uscenter <- st_centroid(continental_us$us)
@@ -548,25 +639,48 @@ output$usview <- renderLeaflet({
     options=leafletOptions(minZoom=4)
   ) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
-    addLegend(pal=pal, values=bins, opacity=0.7) %>% 
     setMaxBounds(usbox[1], usbox[2], usbox[3], usbox[4]) %>%
     setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=4)
 })
 
-observeEvent(us_cases(), {
-  leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
-  clearShapes()  %>%
-  addPolygons(opacity = .4,
-              group="Confirmed Cases", 
-              weight = .3,
-              fillColor = ~pal(cases),
-              fillOpacity = .7,
-              label = ~label, 
-              highlight = highlightOptions(
-                weight=5, fillOpacity=1.0, bringToFront = TRUE
-                )
-              ) %>%
-    addLayersControl(overlayGroups=c("Confirmed Cases")) 
+shadeWeight <- 0.3
+shadeOpacity <- 0.7
+
+observe({
+  req(input$usshade)
+  selection <- input$usshade
+  print(selection)
+  print(names(vis_options))
+  vis_parts <- vis_options[[selection]]
+  
+  map <- leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
+    clearShapes() %>% 
+    addPolygons(opacity = shadeOpacity,
+      group=selection,
+      weight = shadeWeight,
+      fillColor = eval(vis_parts$pal),
+      fillOpacity = shadeOpacity,
+      label = ~label,
+      highlight = highlightOptions(
+        weight=5, fillOpacity=1.0, bringToFront = TRUE
+        )
+      ) %>%
+      addLegend(title=selection, 
+                pal=vis_parts$legend_pal, 
+                values=vis_parts$legend_vals,
+                labFormat=vis_parts$legend_trans)
+  
+  
+  if (selection != "Cases") {
+    map %>% addCircles(group="Confirmed Cases",
+       lat=~lat, 
+       lng=~lng, 
+       stroke=F,
+       fillOpacity=0.4,
+       color="red",
+       radius=~(sqrt(cases) * 1000)) %>%
+      addLayersControl(baseGroups=selection, overlayGroups="Confirmed Cases")
+  }
 })
 
 leafletOutput("usview")

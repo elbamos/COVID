@@ -8,6 +8,10 @@ runtime: shiny
 ---
 
 ```{r todods,include=F}
+# TODO: US MAP
+  # Occupancy density visualization doesn't show up right
+  # Cases visualization doesn't show up right
+  # Rate legend is wrong
 # TODO: Add charts for individual states & counties
 # TODO: Add proportions of populations as a view for US
 # TODO: Animate the bar charts next to the maps
@@ -62,6 +66,12 @@ get_new_data <- function(tag, url, f) {
   update_dataset_dt_url(tag, url)
   out 
 }
+
+makePoll <- function(tag, url, f) reactivePoll(
+  intervalMillis = updateFreq, session = NULL, 
+  checkFunc = function() get_url_date(url), 
+  valueFunc = function() get_new_data(tag, url, f)
+)
 
 get_new_data_json <- function(tag, url, f) {
   out <- fromJSON(url) %>% 
@@ -186,45 +196,29 @@ process_jh_recovered <- function(x) x %>%
     select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
     gather(key="date", value="recovered", -loc_id)
 
-dataset$confirmed <- reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
-  checkFunc = function() get_url_date(url_world_confirmed), 
-  valueFunc = function() get_new_data("Confirmed Cases (JH)",
-                                      url_world_confirmed, 
-                                      process_jh_confirmed)
-)
+dataset$confirmed <- makePoll("Confirmed Cases (JH)", url_world_confirmed, 
+                              process_jh_confirmed) 
 
-dataset$dead <- reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
-  checkFunc = function() get_url_date(url_world_dead), 
-  valueFunc = function() get_new_data("Confirmed Dead (JH)",
-                                      url_world_dead, 
-                                      process_jh_dead)
-)
+dataset$dead <- makePoll("Confirmed Dead (JH)", url_world_dead, 
+                         process_jh_dead)
 
-dataset$recoveries <- reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
-  checkFunc = function() get_url_date(url_world_recovered), 
-  valueFunc = function() get_new_data("Confirmed Recovered (JH)",
-                                      url_world_recovered, 
-                                      process_jh_recovered)
-)
+dataset$recoveries <- makePoll("Confirmed Recovered (JH)", url_world_recovered, 
+                               process_jh_recovered)
 
 
 
 world_cases_jh <- reactive({
-  out <- 
-   full_join(dataset$confirmed(), dataset$dead()) %>%
+  full_join(dataset$confirmed(), dataset$dead()) %>%
      full_join(dataset$recoveries()) %>%
      group_by(loc_id) %>% 
-     mutate(date = mdy(date)) %>%
+     mutate(
+       date = mdy(date)
+      ) %>%
      arrange(date) %>%
-     mutate_if(is.numeric, ~ if_else(is.na(.), 0, .)) %>% 
      mutate(
        new_dead = dead - lag(dead, 1, default=0),
        new_confirmed = confirmed - lag(confirmed, 1, default=0)
      )
-  out
 })
 ```
 
@@ -234,38 +228,30 @@ url_ny_county <- "https://raw.githubusercontent.com/nytimes/covid-19-data/master
 url_ny_state <- "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv"
 
 process_ny_county <- function(x) {
-  out <- x %>% 
-    left_join(locations %>% 
-                select(county = Subsublocation, state=Sublocation, loc_id)) %>%
+  x %>% 
+    left_join(
+      locations %>% 
+        select(county = Subsublocation, state=Sublocation, loc_id)
+    ) %>%
     select(-county, -state)
-  out
 }
 
 process_ny_state <- function(x) {
-  out <- x %>% 
-  filter(! state %in% c(78, 66)) %>% # Exclude virgin islands and guam
-  left_join(locations %>% 
-              filter(is.na(Subsublocation)) %>% 
-              select(state=Sublocation, loc_id)) %>% 
-  select(-state)
-  out
+  x %>% 
+    filter(! state %in% c(78, 66)) %>% # Exclude virgin islands and guam
+    left_join(locations %>% 
+                filter(is.na(Subsublocation)) %>% 
+                select(state=Sublocation, loc_id)) %>% 
+    select(-state)
 }
 
-dataset$cases_county_nyt <- reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
-  checkFunc = function() get_url_date(url_ny_county), 
-  valueFunc = function() get_new_data("NYT Counties", 
+dataset$cases_county_nyt <- makePoll("NYT Counties", 
                                       url_ny_county, 
                                       process_ny_county)
-)
 
-dataset$cases_state_nyt <- reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
-  checkFunc = function() get_url_date(url_ny_state), 
-  valueFunc = function() get_new_data("NYT States", 
-                                      url_ny_state, 
-                                      process_ny_state) 
-)
+dataset$cases_state_nyt <- makePoll("NYT States", 
+                                    url_ny_state, 
+                                    process_ny_state) 
 ```
 
 
@@ -320,16 +306,11 @@ process_interventions <- function(x) x %>%
     date = mdy(date)
   ) %>% 
   inner_join(locations %>% select(county=Subsublocation, state.name=Sublocation, loc_id)) %>% 
-  select(-matches("state"), -county) %>% glimpse()
+  select(-matches("state"), -county)
 
 
-dataset$interventions <- reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
-  checkFunc = function() get_url_date(url_interventions), 
-  valueFunc = function() get_new_data("Interventions", 
-                                      url_interventions, 
-                                      process_interventions)
-)
+dataset$interventions <- makePoll("Interventions", url_interventions,
+                                  process_interventions)
 ```
 
 ```{r data_nyhealth}
@@ -339,13 +320,9 @@ process_nyzipcode <- function(x) x %>%
   filter(! is.na(MODZCTA)) %>% 
   rename(zipcode=MODZCTA)
 
-dataset$nyzipcode <- reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
-  checkFunc = function() get_url_date(url_nyzipcode), 
-  valueFunc = function() get_new_data("NY Testing by Zipcode", 
-                                      url_nyzipcode, 
-                                      process_nyzipcode)
-)
+dataset$nyzipcode <- makePoll("NY Testing by Zipcode", 
+                              url_nyzipcode, 
+                              process_nyzipcode)
 ```
 
 ```{r pull_census, include=F,eval=F}
@@ -415,23 +392,9 @@ Row
 ```{r worldmap}
 world_cases <- reactive({
   req(input$worlddate)
-  #req(input$worlduslevel) 
+
   todisplay <- world_cases_jh() %>% 
     dplyr::filter(date == input$worlddate)
-  
-#  if (input$worlduslevel == "State") {
-#    todisplay %<>% anti_join(
-#      locations %>% filter(Location == "US")
-#    ) %>% bind_rows(
-#      cases_state_nyt %>% rename(dead=deaths, confirmed=cases)
-#    )
-#  } else if (input$worlduslevel == "County") {
-#    todisplay %<>% anti_join(
-#      locations %>% filter(Location == "US")
-#    ) %>% bind_rows(
-#      cases_county_nyt %>% rename(dead=deaths, confirmed=cases)
-#    )
- # }
   
   todisplay %>% 
     inner_join(locations) %>%
@@ -479,15 +442,17 @@ Row {data-height=300}
 
 ### World Cases Flat
 
-```{r worldcasesflat}
+```{r worldcasesummary,include=F}
 world_case_summary <- reactive(world_cases_jh() %>%
   ungroup() %>%
   group_by(date) %>%
   select(-loc_id) %>%
   summarize_all(sum)
 )
+```
 
-output$worldcaseslinear <- renderHighchart(
+```{r worldcases}
+output$worldcases <- renderHighchart(
   highchart()  %>%
     hc_title(text="Cases") %>%
     hc_yAxis(title="", type=input$worldscale) %>% 
@@ -499,10 +464,10 @@ output$worldcaseslinear <- renderHighchart(
                            Recovered=recovered) %>%
                     mutate(Active = Confirmed - Deaths - Recovered) %>% 
                     gather(key="Series", value="val", -date)
-                    )
+                )
 )
 
-highchartOutput("worldcaseslinear")
+highchartOutput("worldcases")
 ```
 
 ### New Cases Per Day
@@ -542,9 +507,14 @@ output$usinputs <- renderUI({
             value=max(cases$date), 
             timeFormat="%Y-%m-%d", 
             animate=T),
-    radioButtons("uslog", "Scale", choices=list(Linear="linear", 
-                                            Logarithmic="logarithmic"), 
-             selected="linear"),
+    
+    radioButtons("uslog", "Scale", 
+                 choices=list(
+                   Linear="linear", 
+                   Logarithmic="logarithmic"
+                  ), 
+                 selected="linear"),
+    
     radioButtons("usshade", "Map Shading",
                  choices=c("Pop Density", 
                            "Housing Density", 
@@ -563,7 +533,7 @@ Row
 
 ### US Map
 
-```{r usmap}
+```{r usmapdata,include=F}
 us_map_filter <- reactive(geometries %>% 
   filter(! is.na(county)) %>% 
   left_join(
@@ -573,60 +543,66 @@ us_map_filter <- reactive(geometries %>%
       rename(state=Sublocation, county=Subsublocation)
   ) %>% 
     mutate(
-      pop_density = pop / aland, 
-      housing_density = housing_units / aland, 
+      landsqmi = aland / 2591646, 
+      pop_density = pop / landsqmi, 
+      housing_density = housing_units / landsqmi, 
       occupancy_density = pop / housing_units,
-      rate = cases / pop, 
+      rate = round((cases / pop) * 1e6), 
       label = paste0("<font color='blue'>", 
                      county, ", ", state, "</font><br/>", 
                      "Population: ", pop, "<br/>",
                      "Confirmed Cases: ",  cases, "<br/>", 
-                     "Infection Rate: ", rate, "<br/>",
+                     "Infection Rate: ", rate, " / 100,000 ppl<br/>",
                      "Deaths: ", deaths, "<br/>"),
       label = map(label, HTML)
     )
 )
+```
+
+```{r usmap}
+shadeWeight <- 0.3
+shadeOpacity <- 0.7
 
 us_cases <- reactive({
   req(input$usdate)
   us_map_filter() %>% filter(date == input$usdate, cases > 0) 
 })
 
-pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(1e-9, 1e-3)))
-pal_density_hous <- colorNumeric("Greens", domain = log10(c(1, 1e-3)))
+pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 2000)))
+pal_density_hous <- colorNumeric("Greens", domain = log10(c(1e-2, 1e4)))
 pal_density_occ <- colorNumeric("Blues", domain = c(0, 6))
-pal_rate <- colorNumeric("Reds", domain = log10(c(1, 1000)))
+pal_rate <- colorNumeric("Reds", domain = log10(c(1, 1e5)))
 pal_cases <- colorNumeric("Reds", domain=log10(10^(0:6)))
 
 vis_options <- list(
   "Pop Density" = list(
     pal = quote(~pal_density_pop(log10(pop_density))), 
     legend_pal = pal_density_pop, 
-    legend_vals = log10(10^(0:-3)),
-    legend_trans = labelFormat(transform=function(x) 10^x)
+    legend_vals = log10(10^(-1:4)),
+    legend_trans = labelFormat(transform=function(x) 10^x, suffix = "ppl / sqmi")
   ), 
   "Housing Density" = list(
     pal = quote(~pal_density_hous(log10(housing_density))), 
     legend_pal = pal_density_hous, 
-    legend_vals = log10(10^(0:-3)),
-    legend_trans = labelFormat(transform=function(x) 10^x)
+    legend_vals = log10(10^(-2:4)),
+    legend_trans = labelFormat(transform=function(x) 10^x, suffix = "homes / sqmi")
   ), 
   "Occupancy Density" = list(
     pal = quote(~pal_density_occ(occupancy_density)), 
     legend_pal = pal_density_occ, 
     legend_vals = 0:6,
-    legend_trans = identity
+    legend_trans = labelFormat(suffix = "ppl / home")
   ), 
   "Infection Rate" = list(    
-    pal = quote(~pal_rate(rate)), 
+    pal = quote(~pal_rate(log10(rate))), 
     legend_pal = pal_rate, 
     legend_vals = log10(10^(0:4)),
-    legend_trans = labelFormat(transform=function(x) 10^x)
+    legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
     ), 
   "Cases" = list(
     pal = quote(~pal_cases(cases)), 
     legend_pal = pal_cases, 
-    legend_vals = log10(10^(0:6)),
+    legend_vals = log10(10^(0:5)),
     legend_trans = labelFormat(transform=function(x) 10^x)
   )
 )
@@ -643,14 +619,9 @@ output$usview <- renderLeaflet({
     setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=4)
 })
 
-shadeWeight <- 0.3
-shadeOpacity <- 0.7
-
 observe({
   req(input$usshade)
   selection <- input$usshade
-  print(selection)
-  print(names(vis_options))
   vis_parts <- vis_options[[selection]]
   
   map <- leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
@@ -664,12 +635,7 @@ observe({
       highlight = highlightOptions(
         weight=5, fillOpacity=1.0, bringToFront = TRUE
         )
-      ) %>%
-      addLegend(title=selection, 
-                pal=vis_parts$legend_pal, 
-                values=vis_parts$legend_vals,
-                labFormat=vis_parts$legend_trans)
-  
+      )
   
   if (selection != "Cases") {
     map %>% addCircles(group="Confirmed Cases",
@@ -678,8 +644,27 @@ observe({
        stroke=F,
        fillOpacity=0.4,
        color="red",
-       radius=~(sqrt(cases) * 1000)) %>%
-      addLayersControl(baseGroups=selection, overlayGroups="Confirmed Cases")
+       radius=~(sqrt(cases) * 1000))
+  }
+})
+
+observeEvent(input$usshade, {
+  req(input$usshade) 
+  selection <- input$usshade
+  vis_parts <- vis_options[[selection]]
+  
+  map <- leafletProxy("usview", deferUntilFlush=T) %>%
+    clearControls() %>%
+    addLegend(title=selection, 
+              pal=vis_parts$legend_pal, 
+              values=vis_parts$legend_vals,
+              labFormat=vis_parts$legend_trans, 
+             )
+  
+  
+  if (selection != "Cases") {
+    map %>%
+      addLayersControl(overlayGroups="Confirmed Cases")
   }
 })
 
@@ -692,14 +677,16 @@ Row
 
 ### US Cases
 
-```{r uscasesflat}
+```{r uscasedata,include=F}
 us_case_summary <- reactive(dataset$cases_state_nyt() %>%
   ungroup() %>%
   select(date, cases, deaths) %>% 
   group_by(date) %>%
   summarize_all(sum)
 )
+```
 
+```{r uscasesflat}
 output$uscaseslinear <- renderHighchart({
   req(input$uslog)
   highchart() %>% 

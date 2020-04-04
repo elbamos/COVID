@@ -10,7 +10,6 @@ runtime: shiny
 ```{r todods,include=F}
 # TODO: US MAP
   # Occupancy density visualization doesn't show up right
-  # Cases visualization doesn't show up right
   # Rate legend is wrong
 # TODO: Add charts for individual states & counties
 # TODO: Add proportions of populations as a view for US
@@ -571,7 +570,7 @@ us_cases <- reactive({
 pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 2000)))
 pal_density_hous <- colorNumeric("Greens", domain = log10(c(1e-2, 1e4)))
 pal_density_occ <- colorNumeric("Blues", domain = c(0, 6))
-pal_rate <- colorNumeric("Reds", domain = log10(c(1, 1e5)))
+pal_rate <- colorNumeric("Oranges", domain = log10(c(1, 1e5)))
 pal_cases <- colorNumeric("Reds", domain=log10(10^(0:6)))
 
 vis_options <- list(
@@ -588,7 +587,7 @@ vis_options <- list(
     legend_trans = labelFormat(transform=function(x) 10^x, suffix = "homes / sqmi")
   ), 
   "Occupancy Density" = list(
-    pal = quote(~pal_density_occ(occupancy_density)), 
+    pal = quote(~pal_density_occ(log10(occupancy_density))), 
     legend_pal = pal_density_occ, 
     legend_vals = 0:6,
     legend_trans = labelFormat(suffix = "ppl / home")
@@ -600,7 +599,7 @@ vis_options <- list(
     legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
     ), 
   "Cases" = list(
-    pal = quote(~pal_cases(cases)), 
+    pal = quote(~pal_cases(log10(cases))), 
     legend_pal = pal_cases, 
     legend_vals = log10(10^(0:5)),
     legend_trans = labelFormat(transform=function(x) 10^x)
@@ -659,6 +658,7 @@ observeEvent(input$usshade, {
               pal=vis_parts$legend_pal, 
               values=vis_parts$legend_vals,
               labFormat=vis_parts$legend_trans, 
+              position="bottomleft"
              )
   
   

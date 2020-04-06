@@ -8,8 +8,8 @@ runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
+# TODO: Let the user select a county to visualize it in the lower charts
 # TODO: US MAP Rate legend is wrong
-# TODO: Calculation of infection rate is wrong
 # TODO: Add charts for individual states & counties
 # TODO: Add proportions of populations as a view for US
 # TODO: Animate the bar charts next to the maps
@@ -555,8 +555,7 @@ Row
 ### US Map
 
 ```{r usmapdata,context="server-start",include=F}
-make_us_cases <- function(county_cases, state_cases)
-  geometries %>%
+make_us_cases <- function(county_cases, state_cases) geometries %>%
   inner_join(
     county_cases %>%
       filter(cases > 0) %>%
@@ -568,7 +567,7 @@ make_us_cases <- function(county_cases, state_cases)
     pop_density = pop / landsqmi,
     housing_density = housing_units / landsqmi,
     occupancy_density = pop / housing_units,
-    rate = round((cases / pop) * 1e6)
+    rate = round((cases / pop) * 1e5)
   ) %>%
   select(-aland,-awater) %>%
   group_by(loc_id) %>%
@@ -581,15 +580,16 @@ make_us_cases <- function(county_cases, state_cases)
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "---", date, "</font><br/>",
       "<hr>",
       "Population: ", pop, "<br/>",
-      "Density: ", pop_density, " ppl/sqmi<br/>",
-      "Housing Units: ",  housing_density, " /sqmi<br/>",
+      "Density: ", round(pop_density, 4), " ppl/sqmi<br/>",
+      "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>",
       "<hr>",
-      "Confirmed Cases: ", cases, "<br/>", "Infection Rate: ", rate, " / 100,000 ppl<br/>",
+      "Confirmed Cases: ", cases, "<br/>", 
+      "Infection Rate: ", rate, " / 100,000 ppl<br/>",
       "Deaths: ", deaths, "<br/>",
       "<hr>",
       "New Cases: ", new_cases, "<br/>",
-      "Growth: ", growth_rate, " d/d<br/>",
-      "Change in Growth: ", delta_growth_rate, "<br/>"
+      "Growth: ", round(growth_rate, 3), " d/d<br/>",
+      "Change in Growth: ", round(delta_growth_rate, 3), "<br/>"
     ),
     label = map(label, HTML)
   )
@@ -599,7 +599,7 @@ us_cases_with_geo <- reactive(make_us_cases(dataset$cases_county_nyt()))
 ```
 
 ```{r usmap,context="server",include=F}
-shadeWeight <- 0.3
+shadeWeight <- 0.1
 shadeOpacity <- 0.7
 
 us_cases <- reactive({
@@ -610,7 +610,7 @@ us_cases <- reactive({
 pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 2000)))
 pal_density_hous <- colorNumeric("Greens", domain = log10(c(1e-2, 1e4)))
 pal_density_occ <- colorNumeric("Blues", domain = c(0, 6))
-pal_rate <- colorNumeric("Oranges", domain = log10(c(1, 1e5)))
+pal_rate <- colorNumeric("Oranges", domain = log10(c(1, 1e4)))
 pal_cases <- colorNumeric("Reds", domain=log10(10^(0:6)))
 
 vis_options <- list(
@@ -619,14 +619,14 @@ vis_options <- list(
     field = quote(log10(pop_density)),
     legend_pal = pal_density_pop, 
     legend_vals = log10(10^(-1:4)),
-    legend_trans = labelFormat(transform=function(x) 10^x, suffix = "ppl / sqmi")
+    legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
   ), 
   "Housing Density" = list(
     pal = quote(~pal_density_hous(log10(housing_density))), 
     field = quote(log10(housing_density)),
     legend_pal = pal_density_hous, 
     legend_vals = log10(10^(-2:4)),
-    legend_trans = labelFormat(transform=function(x) 10^x, suffix = "homes / sqmi")
+    legend_trans = labelFormat(transform=function(x) 10^x, suffix = " homes / sqmi")
   ), 
   "Occupancy Density" = list(
     pal = quote(~pal_density_occ(log10(occupancy_density))), 

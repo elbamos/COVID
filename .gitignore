@@ -6,3 +6,7 @@
 cases.rda
 
 *.html
+
+dash_cache/html/
+
+dash_data/

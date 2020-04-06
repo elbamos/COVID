@@ -9,8 +9,9 @@ runtime: shiny_prerendered
 
 ```{r todods,include=F}
 # TODO: US MAP
-  # Occupancy density visualization doesn't show up right
   # Rate legend is wrong
+# TODO: NY Chart needs popups
+# TODO: Add to interventions, charts showing the first and second derivative
 # TODO: Add charts for individual states & counties
 # TODO: Add proportions of populations as a view for US
 # TODO: Animate the bar charts next to the maps
@@ -268,7 +269,10 @@ process_covid_track <- function(x) x %>%
   rename(state=state_full) %>%
   left_join(
     locations %>% filter(is.na(Subsublocation)) %>% select(state=Sublocation, loc_id)
-  )
+  ) %>%
+  group_by(date, loc_id) %>%
+  summarize_if(is.integer, ~max(if_else(is.na(.), 0L, .))) %>%
+  ungroup()
 
 dataset$covid_track <- reactivePoll(
   intervalMillis = updateFreq, session=NULL,
@@ -731,7 +735,7 @@ output$uscaseslinear <- renderHighchart({
         bind_rows(
           dataset$covid_track() %>% 
             group_by(date) %>% 
-            summarize(val = max(hospitalized, na.rm=T)) %>%
+            summarize(val = sum(hospitalized, na.rm=T)) %>% 
             mutate(Series="Hospitalizations")
         ), 
       mapping=hcaes(x=date, y=val, group=Series)
@@ -778,7 +782,7 @@ output$ushospperday <- renderHighchart({
       type="column",
       data=dataset$covid_track() %>% 
         group_by(date) %>% 
-        summarize(Hospitalizations = max(hospitalized, na.rm=T)) %>%
+        summarize(Hospitalizations = sum(hospitalized, na.rm=T)) %>%
         filter(Hospitalizations > 0) %>% 
         arrange(date) %>% 
         mutate(Hospitalizations = Hospitalizations - lag(Hospitalizations, default=0)), 
@@ -804,22 +808,11 @@ checkboxGroupInput("testingstates", label = "States to Show",
                    selected=state.name)
 ```
 
-```{r ustesting_data,context="server-start"}
-covid_track_to_show <- reactive(
-  dataset$covid_track() %>% 
-    select(-state, -fips, -dateChecked) %>% 
-    group_by(date, loc_id) %>% 
-    summarize_all(~as.numeric(max(., na.rm=T))) %>%
-    mutate_all(~if_else(is.infinite(.), 0, as.numeric(.))) %>% 
-    ungroup() 
-)
-```
-
 Row
 -----------------------------------------------------
 
 ```{r ustesting_filter,context="server",include=F}
-covid_track_filtered <- reactive(covid_track_to_show() %>% 
+covid_track_filtered <- reactive(dataset$covid_track() %>% 
                                    semi_join(
                                      locations %>% filter(Sublocation %in% input$testingstates,
                                                           is.na(Subsublocation))

@@ -8,10 +8,8 @@ runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
-# TODO: US MAP
-# Rate legend is wrong
-# TODO: NY Chart needs popups
-# TODO: Add to interventions, charts showing the first and second derivative
+# TODO: US MAP Rate legend is wrong
+# TODO: Calculation of infection rate is wrong
 # TODO: Add charts for individual states & counties
 # TODO: Add proportions of populations as a view for US
 # TODO: Animate the bar charts next to the maps
@@ -577,8 +575,8 @@ make_us_cases <- function(county_cases, state_cases)
   arrange(date) %>%
   mutate(
     new_cases = cases - lag(cases, 1, default = 0),
-    growth_rate = new_cases / lag(cases, 1, default = 1),
-    delta_growth_rate = growth_rate / lag(growth_rate, 1, default = 1),
+    growth_rate = log(new_cases / lag(cases, 1, default = 1)),
+    delta_growth_rate = growth_rate - lag(growth_rate, 1, default = 0),
     label = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "---", date, "</font><br/>",
       "<hr>",
@@ -597,7 +595,7 @@ make_us_cases <- function(county_cases, state_cases)
   )
 
 
-us_map_filter <- reactive(make_us_cases(dataset$cases_county_nyt()))
+us_cases_with_geo <- reactive(make_us_cases(dataset$cases_county_nyt()))
 ```
 
 ```{r usmap,context="server",include=F}
@@ -606,7 +604,7 @@ shadeOpacity <- 0.7
 
 us_cases <- reactive({
   req(input$usdate)
-  us_map_filter() %>% filter(date == input$usdate, cases > 0) 
+  us_cases_with_geo() %>% filter(date == input$usdate, cases > 0) 
 })
 
 pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 2000)))
@@ -993,15 +991,15 @@ interventions_with_cases <- reactive({
   
   locs_with_intervention <- interventions %>% group_by(loc_id) %>% summarize()
   
-  dataset$cases_county_nyt() %>%
+  us_cases_with_geo() %>%
+    select(-geometry) %>% 
     semi_join(locs_with_intervention) %>%
     left_join(interventions) %>%
-    inner_join(locations) %>% 
-    mutate(name = paste0(Subsublocation, ", ", Sublocation))
+    mutate(name = paste0(county, ", ", state))
 })
 ```
 
-```{r interventions_server,context="server",include=F}
+```{r interventions_data,context="server",include=F}
 filtered_interventions_with_cases <- reactive({
   req(input$interventionstartcases)
   req(input$interventionstates)
@@ -1019,7 +1017,9 @@ filtered_interventions_with_cases <- reactive({
 
 intervention_points <- reactive(filtered_interventions_with_cases() %>% 
                                   filter(! is.na(intervention)))
+```
 
+```{r interventions_server,context="server",include=F}
 output$interventions <- renderHighchart({
   req(input$interventionlog)
   highchart() %>% 
@@ -1038,10 +1038,45 @@ output$interventions <- renderHighchart({
                   colorAxis=0, tooltip=list(
                     headerFormat="<span style='color:{point.color}'>●</span> <span style='font-size: 12px'> {series.name}</span><br/>",
                     pointFormat="{point.name}<br/>Date: {point.date}<br/>Cases: {point.cases}"
-                  ))
+                  )) %>%
+    hc_title(text="Number of Cases")
 })
 ```
 
+### Effect of Interventions on Number of Cases
+
 ```{r interventions_output}
 highchartOutput("interventions")
+```
+
+Row 
+---------------------------------------------------------------------- 
+
+```{r interventions_rate_server,context="server",include=F}
+output$interventions_rate <- renderHighchart({
+  highchart() %>% 
+    hc_add_series(data=filtered_interventions_with_cases(), type="line", 
+                  mapping=hcaes(x=days, y=growth_rate, group=name), 
+                  colorAxis=0,
+                  lineWidth=1, 
+                  marker=list(enabled=FALSE),
+                  tooltip=list(
+                    pointFormat="Date: {point.date}<br/>Cases: {point.cases}<br/>Growth Rate: {point.growth_rate}"
+                  )) %>% 
+    hc_yAxis(title="Growth Rate", type="linear") %>%
+    hc_add_series(data=intervention_points(), type="point", 
+                  mapping=hcaes(x=days, y=growth_rate, fill=name,
+                                color=name, group=intervention), 
+                  colorAxis=0, tooltip=list(
+                    headerFormat="<span style='color:{point.color}'>●</span> <span style='font-size: 12px'> {series.name}</span><br/>",
+                    pointFormat="{point.name}<br/>Date: {point.date}<br/>Cases: {point.cases}<br/>Growth Rate: {point.growth_rate}"
+                  )) %>%
+    hc_title(text="Growth Rate")
+})
+```
+
+### Case Growth Rate
+
+```{r interventions_growth_output}
+highchartOutput("interventions_rate")
 ```

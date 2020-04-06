@@ -908,7 +908,12 @@ nyzip_geoms <- reactive(
       lng=map(geometry, ~.[[2]][1]), 
       lat=unlist(lat), 
       lng=unlist(lng), 
-      rate = Positive / Total
+      rate = Positive / Total,
+      label = paste0(
+        "<font color='blue'>Zipcode: ", zipcode, "</font><br/>",
+        "Positive Tests: ", Positive, " / ", Total
+      ),
+      label = map(label, HTML)
     )
 )
 
@@ -927,6 +932,7 @@ output$nyview <- renderLeaflet({
               title="Positive Rate")  %>%
     addCircles(weight=0, opacity=.3, stroke=F, fill=T, 
                fillOpacity = 0.4, fillColor=~rate_pal(rate), 
+               label=~label,
                radius = ~(sqrt(Positive) * 30)) 
 })
 ```

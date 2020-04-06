@@ -590,7 +590,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
     growth_rate = log(new_cases / lag(cases, 1, default = 1)),
     delta_growth_rate = growth_rate - lag(growth_rate, 1, default = 0),
     label = paste0(
-      "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "---", date, "</font><br/>",
+      "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
       "<hr>",
       "Population: ", pop, "<br/>",
       "Density: ", round(pop_density, 4), " ppl/sqmi<br/>",
@@ -621,7 +621,7 @@ uscenter <- st_centroid(continental_us$us)
 
 pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 2000)))
 pal_density_hous <- colorNumeric("Greens", domain = log10(c(1e-2, 1e4)))
-pal_density_occ <- colorNumeric("Blues", domain = c(0, 6))
+pal_density_occ <- colorNumeric("Blues", domain = c(0, 3))
 pal_rate <- colorNumeric("Oranges", domain = log10(c(1, 1e4)))
 pal_cases <- colorNumeric("Reds", domain=log10(10^(0:6)))
 
@@ -630,33 +630,38 @@ vis_options <- list(
     pal = quote(~pal_density_pop(log10(pop_density))), 
     field = quote(log10(pop_density)),
     legend_pal = pal_density_pop, 
-    legend_vals = log10(10^(-1:4)),
+    legend_bins = 5,
+    legend_vals = c(-1, 4),
     legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
   ), 
   "Housing Density" = list(
     pal = quote(~pal_density_hous(log10(housing_density))), 
     field = quote(log10(housing_density)),
     legend_pal = pal_density_hous, 
-    legend_vals = log10(10^(-2:4)),
+    legend_bins = 6,
+    legend_vals = c(-2, 4),
     legend_trans = labelFormat(transform=function(x) 10^x, suffix = " homes / sqmi")
   ), 
   "Occupancy Density" = list(
     pal = quote(~pal_density_occ(log10(occupancy_density))), 
     field = quote(log10(occupancy_density)),
     legend_pal = pal_density_occ, 
-    legend_vals = 0:6,
+    legend_bins = 4, 
+    legend_vals = c(0, 3),
     legend_trans = labelFormat(suffix = "ppl / home")
   ), 
   "Infection Rate" = list(    
     pal = quote(~pal_rate(log10(rate))), 
     legend_pal = pal_rate, 
-    legend_vals = log10(10^(0:4)),
+    legend_bins = 5, 
+    legend_vals = c(0, 4),
     legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
   ), 
   "Cases" = list(
     pal = quote(~pal_cases(log10(cases))), 
     legend_pal = pal_cases, 
-    legend_vals = log10(10^(0:5)),
+    legend_bins = 6, 
+    legend_vals = c(0, 5),
     legend_trans = labelFormat(transform=function(x) 10^x)
   )
 )
@@ -702,7 +707,7 @@ observe({
   map <- leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
     clearShapes() %>% 
     addPolygons(opacity = shadeOpacity,
-                group=selection,
+                group = selection,
                 weight = shadeWeight,
                 fillColor = eval(vis_parts$pal),
                 fillOpacity = shadeOpacity,
@@ -717,7 +722,7 @@ observe({
                        lat=~lat, 
                        lng=~lng, 
                        stroke=F,
-                       fillOpacity=0.4,
+                       fillOpacity=0.2,
                        color="red",
                        radius=~(sqrt(cases) * 1000))
   }
@@ -733,6 +738,7 @@ observeEvent(input$usshade, {
     addLegend(title=selection, 
               pal=vis_parts$legend_pal, 
               values=vis_parts$legend_vals,
+              bins=vis_parts$legend_bins,
               labFormat=vis_parts$legend_trans, 
               position="bottomleft"
     )

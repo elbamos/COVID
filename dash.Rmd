@@ -562,6 +562,7 @@ Row
 make_us_cases <- function(county_cases, state_cases) geometries %>%
   inner_join(
     county_cases %>%
+      bind_rows(state_cases) %>% 
       filter(cases > 0) %>%
       inner_join(locations) %>%
       rename(state = Sublocation, county = Subsublocation)
@@ -599,7 +600,7 @@ make_us_cases <- function(county_cases, state_cases) geometries %>%
   )
 
 
-us_cases_with_geo <- reactive(make_us_cases(dataset$cases_county_nyt()))
+us_cases_with_geo <- reactive(make_us_cases(dataset$cases_county_nyt(), dataset$cases_state_nyt()))
 ```
 
 ```{r usmap,context="server",include=F}
@@ -608,7 +609,15 @@ shadeOpacity <- 0.7
 
 us_cases <- reactive({
   req(input$usdate)
-  us_cases_with_geo() %>% filter(date == input$usdate, cases > 0) 
+  req(input$usscale)
+  scale <- input$usscale
+  
+  us_cases_with_geo() %>% 
+    filter(
+      date == input$usdate, 
+      cases > 0,
+      (scale == "County" & ! is.na(county)) | (scale == "State" & is.na(county))
+    ) 
 })
 
 pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 2000)))

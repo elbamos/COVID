@@ -8,7 +8,6 @@ runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
-# TODO: Let the user select a county to visualize it in the lower charts
 # TODO: US MAP Rate legend is wrong
 # TODO: Add charts for individual states & counties
 # TODO: Add proportions of populations as a view for US
@@ -558,7 +557,7 @@ Row
 
 ### US Map
 
-```{r usmapdata,context="server-start",include=F}
+```{r make_us_cases,context="server-start",include=F}
 make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %>%
   inner_join(
     county_cases %>%
@@ -613,29 +612,11 @@ us_cases_with_geo <- reactive(make_us_cases(dataset$cases_county_nyt(),
                                             dataset$covid_track()))
 ```
 
-```{r usmap,context="server",include=F}
+```{r usmap_vis_elements,context="server-start",includ=F}
 shadeWeight <- 0.1
 shadeOpacity <- 0.7
-
-us_cases_state_county <- reactive({
-  req(input$usscale)
-  scale <- input$usscale
-  
-  us_cases_with_geo() %>%
-    filter(
-      (scale == "County" & ! is.na(county)) | (scale == "State" & is.na(county)),
-      cases > 0
-    ) 
-})
-
-us_cases <- reactive({
-  req(input$usdate)
-
-  us_cases_state_county() %>% 
-    filter(
-      date == input$usdate
-    ) 
-})
+usbox <- st_bbox(continental_us$us)
+uscenter <- st_centroid(continental_us$us)
 
 pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 2000)))
 pal_density_hous <- colorNumeric("Greens", domain = log10(c(1e-2, 1e4)))
@@ -678,10 +659,31 @@ vis_options <- list(
     legend_trans = labelFormat(transform=function(x) 10^x)
   )
 )
+```
 
-usbox <- st_bbox(continental_us$us)
-uscenter <- st_centroid(continental_us$us)
+```{r usmap_data_filtration,context="server",include=F}
+us_cases_state_county <- reactive({
+  req(input$usscale)
+  scale <- input$usscale
+  
+  us_cases_with_geo() %>%
+    filter(
+      (scale == "County" & ! is.na(county)) | (scale == "State" & is.na(county)),
+      cases > 0
+    ) 
+})
 
+us_cases <- reactive({
+  req(input$usdate)
+
+  us_cases_state_county() %>% 
+    filter(
+      date == input$usdate
+    ) 
+})
+```
+
+```{r usmap,context="server",include=F}
 output$usview <- renderLeaflet({
   leaflet(
     options=leafletOptions(minZoom=4)
@@ -742,7 +744,7 @@ observeEvent(input$usshade, {
 })
 ```
 
-```{r usmapoutput}
+```{r usmap_output}
 leafletOutput("usview")
 ```
 
@@ -752,7 +754,7 @@ Row
 
 ### US Cases
 
-```{r uscasedata,context="server",include=F}
+```{r data_for_us_charts,context="server",include=F}
 region_click_state <- reactive(label="usmapclick", {
   
   if (is.null(input$usview_click)) {NA}
@@ -762,13 +764,11 @@ region_click_state <- reactive(label="usmapclick", {
     
     target <- st_point(x=c(lng, lat), dim=c("XY"))
     
-    isolate(
-      out <- us_cases_state_county() %>% 
+    out <- us_cases_state_county() %>% 
         group_by(loc_id) %>%
         filter(row_number() == 1) %>%
         filter(st_within(target, geometry, sparse=FALSE, prepared=T)) %>% 
         select(state, county, loc_id)
-    )
     if (nrow(out) == 0) {NA}
     else {out}
   }

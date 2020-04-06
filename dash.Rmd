@@ -559,20 +559,28 @@ Row
 ### US Map
 
 ```{r usmapdata,context="server-start",include=F}
-make_us_cases <- function(county_cases, state_cases) geometries %>%
+make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %>%
   inner_join(
     county_cases %>%
       bind_rows(state_cases) %>% 
       filter(cases > 0) %>%
       inner_join(locations) %>%
-      rename(state = Sublocation, county = Subsublocation)
+      rename(state = Sublocation, county = Subsublocation) %>%
+      left_join(covid_tracker %>% 
+                  select(date, loc_id, 
+                         negative, pending, 
+                         hospitalized = hospitalizedCurrently, 
+                         icu = inIcuCurrently, 
+                         vent = onVentilatorCurrently, 
+                         recovered))
   ) %>%
   mutate(
     landsqmi = aland / 2591646,
     pop_density = pop / landsqmi,
     housing_density = housing_units / landsqmi,
     occupancy_density = pop / housing_units,
-    rate = round((cases / pop) * 1e5)
+    rate = round((cases / pop) * 1e5),
+    pos_rate = cases / (cases + negative)
   ) %>%
   select(-aland,-awater) %>%
   group_by(loc_id) %>%
@@ -600,23 +608,32 @@ make_us_cases <- function(county_cases, state_cases) geometries %>%
   )
 
 
-us_cases_with_geo <- reactive(make_us_cases(dataset$cases_county_nyt(), dataset$cases_state_nyt()))
+us_cases_with_geo <- reactive(make_us_cases(dataset$cases_county_nyt(), 
+                                            dataset$cases_state_nyt(),
+                                            dataset$covid_track()))
 ```
 
 ```{r usmap,context="server",include=F}
 shadeWeight <- 0.1
 shadeOpacity <- 0.7
 
-us_cases <- reactive({
-  req(input$usdate)
+us_cases_state_county <- reactive({
   req(input$usscale)
   scale <- input$usscale
   
-  us_cases_with_geo() %>% 
+  us_cases_with_geo() %>%
     filter(
-      date == input$usdate, 
-      cases > 0,
-      (scale == "County" & ! is.na(county)) | (scale == "State" & is.na(county))
+      (scale == "County" & ! is.na(county)) | (scale == "State" & is.na(county)),
+      cases > 0
+    ) 
+})
+
+us_cases <- reactive({
+  req(input$usdate)
+
+  us_cases_state_county() %>% 
+    filter(
+      date == input$usdate
     ) 
 })
 
@@ -735,33 +752,70 @@ Row
 
 ### US Cases
 
-```{r uscasedata,context="server-start",include=F}
-us_case_summary <- reactive(dataset$cases_state_nyt() %>%
-                              ungroup() %>%
-                              select(date, cases, deaths) %>% 
-                              group_by(date) %>%
-                              summarize_all(sum)
-)
+```{r uscasedata,context="server",include=F}
+region_click_state <- reactive(label="usmapclick", {
+  
+  if (is.null(input$usview_click)) {NA}
+  else {
+    lat <- input$usview_click$lat
+    lng <- input$usview_click$lng
+    
+    target <- st_point(x=c(lng, lat), dim=c("XY"))
+    
+    isolate(
+      out <- us_cases_state_county() %>% 
+        group_by(loc_id) %>%
+        filter(row_number() == 1) %>%
+        filter(st_within(target, geometry, sparse=FALSE, prepared=T)) %>% 
+        select(state, county, loc_id)
+    )
+    if (nrow(out) == 0) {NA}
+    else {out}
+  }
+})
+
+us_case_summary <- reactive(label="us_case_summary", {
+  cases <- us_cases_state_county() %>% select(-geometry) %>% as.data.frame()
+  click_state <- region_click_state()
+
+  if (is.na(click_state)) {
+    cases %<>% 
+      group_by(date) %>% 
+      summarize_if(is.numeric, ~sum(., na.rm=T))
+  } else {
+    cases %<>% 
+      filter(loc_id == click_state$loc_id[1])
+  }
+
+  cases %>% 
+    select(date, Cases=cases, Deaths=deaths, 
+           Hospitalized=hospitalized, ICU=icu, 
+           Ventilator=vent, Recovered = recovered, 
+           `New Cases` = new_cases)
+  
+})
+
+click_state_name <- reactive({
+  click_state = region_click_state()
+  if (is.na(click_state)) "U.S." 
+  else {
+    if_else(is.na(click_state$county[1]), click_state$state[1],
+            paste0(click_state$county[1], ", ", click_state$state[1]))
+  }
+})
 ```
 
 ```{r uscasesflat,context="server"}
 output$uscaseslinear <- renderHighchart({
   req(input$uslog)
   highchart() %>% 
-    hc_title(text="Confirmed Cases, Hosp. and Deaths (U.S.)") %>%
+    hc_title(text=paste0("Confirmed Cases, Hosp. and Deaths (", isolate(click_state_name()), ")")) %>%
     hc_yAxis(title="", type=input$uslog, min=1) %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(
       type="line",
       data=us_case_summary() %>% 
-        select(date, Confirmed=cases, Deaths=deaths) %>% 
-        gather(key="Series", value="val", -date) %>% 
-        bind_rows(
-          dataset$covid_track() %>% 
-            group_by(date) %>% 
-            summarize(val = sum(hospitalized, na.rm=T)) %>% 
-            mutate(Series="Hospitalizations")
-        ), 
+        gather(key="Series", value="val", -date), 
       mapping=hcaes(x=date, y=val, group=Series)
     )
 })
@@ -777,47 +831,19 @@ highchartOutput("uscaseslinear")
 ```{r usewcases,context="server",include=F}
 output$usdailynewcases <- renderHighchart(
   highchart() %>% 
-    hc_title(text="New Cases Per Day") %>%
+    hc_title(text=paste0("Daily New Cases (", isolate(click_state_name()), ")")) %>%
     hc_xAxis(type="datetime") %>%
     hc_yAxis(title="", type=input$uslog, min=1) %>% 
     hc_add_series(type="column", 
                   data=us_case_summary() %>% 
-                    arrange(date) %>%
-                    mutate(new_confirmed = cases - lag(cases, 1, default=0)) %>%
-                    select(date, New=new_confirmed), 
-                  mapping=hcaes(x=date, y=New),
+                    select(date, `New Cases`), 
+                  mapping=hcaes(x=date, y=`New Cases`),
                   name="New Cases")
 )
 ```
 
 ```{r usnewcasesoutput}
 highchartOutput("usdailynewcases")
-```
-
-### New Hospitalizations Per Day
-
-```{r ushosp,context="server",include=F}
-output$ushospperday <- renderHighchart({
-  highchart() %>% 
-    hc_title(text="New Hospitalizations Per Day (U.S.)") %>%
-    hc_yAxis(title="", type=input$uslog, min=1) %>%
-    hc_xAxis(type="datetime") %>% 
-    hc_add_series(
-      type="column",
-      data=dataset$covid_track() %>% 
-        group_by(date) %>% 
-        summarize(Hospitalizations = sum(hospitalized, na.rm=T)) %>%
-        filter(Hospitalizations > 0) %>% 
-        arrange(date) %>% 
-        mutate(Hospitalizations = Hospitalizations - lag(Hospitalizations, default=0)), 
-      mapping=hcaes(x=date, y=Hospitalizations),
-      name="New Hospitalizations"
-    )
-})
-```
-
-```{r ushospoutput}
-highchartOutput("ushospperday")
 ```
 
 US Testing

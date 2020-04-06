@@ -4,7 +4,7 @@ output:
   flexdashboard::flex_dashboard:
     orientation: rows
     vertical_layout: fill
-runtime: shiny
+runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
@@ -16,7 +16,7 @@ runtime: shiny
 # TODO: Animate the bar charts next to the maps
 ```
 
-```{r setup, include=FALSE}
+```{r setup,context="setup",include=FALSE}
 library(flexdashboard)
 library(shiny)
 
@@ -40,7 +40,7 @@ library(jsonlite)
 ```
 
 
-```{r setupdata,include=F}
+```{r setupdata,context="server-start",include=F}
 dataset <- reactiveValues()
 datasetdt <- reactiveValues()
 updateFreq = 10 * 60 * 1000
@@ -81,7 +81,7 @@ get_new_data_json <- function(tag, url, f) {
 ```
 
 
-```{r global,include=F}
+```{r global,include=F,context="data",cache=T}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
 
@@ -143,7 +143,7 @@ continental_us <- geometries %>%
   summarize(us = st_combine(geometry)) 
 ```
 
-```{r data_jh_and_locations,include=F}
+```{r data_jh_and_locations,context="server-start",include=F}
 url_world_confirmed <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
 url_world_dead <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
 url_world_recovered <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv"
@@ -221,7 +221,7 @@ world_cases_jh <- reactive({
 })
 ```
 
-```{r data_nytimes,include=F}
+```{r data_nytimes,context="server-start",include=F}
 # ------ NY TIMES
 url_ny_county <- "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv"
 url_ny_state <- "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv"
@@ -254,7 +254,7 @@ dataset$cases_state_nyt <- makePoll("NYT States",
 ```
 
 
-```{r data_covid_track,include=F}
+```{r data_covid_track,context="server-start",include=F}
 # ------------ COVID Tracking Project
 url_covid_track <- "https://covidtracking.com/api/states/daily"
 
@@ -280,7 +280,7 @@ dataset$covid_track <- reactivePoll(
 ```
 
 
-```{r data_interventions,include=F}
+```{r data_interventions,context="server-start",include=F}
 # ---------------  Intervention data
 url_interventions <- "https://raw.githubusercontent.com/Keystone-Strategy/covid19-intervention-data/master/npi_data_03-24-2020.csv"
 
@@ -312,7 +312,7 @@ dataset$interventions <- makePoll("Interventions", url_interventions,
                                   process_interventions)
 ```
 
-```{r data_nyhealth}
+```{r data_nyhealth,context="server-start",include=F}
 url_nyzipcode <- "https://raw.githubusercontent.com/nychealth/coronavirus-data/master/tests-by-zcta.csv"
 
 process_nyzipcode <- function(x) x %>% 
@@ -324,7 +324,7 @@ dataset$nyzipcode <- makePoll("NY Testing by Zipcode",
                               process_nyzipcode)
 ```
 
-```{r pull_census, include=F,eval=F}
+```{r pull_census,context="data",include=F,eval=F}
 library(tidycensus)
 
 census_to_pull <- data.frame(
@@ -360,7 +360,7 @@ Inputs {.sidebar}
 
 ### Input
 
-```{r}
+```{r context="server",include=F}
 output$worldoverviewinputs <- renderUI({
   cases <- world_cases_jh()
   
@@ -378,7 +378,8 @@ output$worldoverviewinputs <- renderUI({
                  ))
   )
 })
-
+```
+```{r context="render"}
 #radioButtons("worlduslevel", "US Detail", choices=c("Country", "State", "County"), selected="State")
 uiOutput("worldoverviewinputs")
 ```
@@ -388,7 +389,7 @@ Row
 -----------------------------------------------------------------------
 ### World Map
 
-```{r worldmap}
+```{r worldmap,context="server",include=F}
 world_cases <- reactive({
   req(input$worlddate)
 
@@ -432,7 +433,8 @@ observeEvent(world_cases(), {
               color="red", radius= ~(sqrt(dead) * sizer)) %>%
     addLayersControl(overlayGroups=c("Confirmed", "Deaths"))
 })
-
+```
+```{r worldmap_output}
 leafletOutput("worldview")
 ```
 
@@ -441,7 +443,7 @@ Row {data-height=300}
 
 ### World Cases Flat
 
-```{r worldcasesummary,include=F}
+```{r worldcasesummary,context="server",include=F}
 world_case_summary <- reactive(world_cases_jh() %>%
   ungroup() %>%
   group_by(date) %>%
@@ -450,7 +452,7 @@ world_case_summary <- reactive(world_cases_jh() %>%
 )
 ```
 
-```{r worldcases}
+```{r worldcases,context="server",include=F}
 output$worldcases <- renderHighchart(
   highchart()  %>%
     hc_title(text="Cases") %>%
@@ -465,13 +467,15 @@ output$worldcases <- renderHighchart(
                     gather(key="Series", value="val", -date)
                 )
 )
+```
 
+```{r worldcasesoutput}
 highchartOutput("worldcases")
 ```
 
 ### New Cases Per Day
 
-```{r worldnewcases}
+```{r worldnewcases,context="server"}
 output$dailynewcases <- renderHighchart(
   highchart()  %>%
     hc_title(text="New Cases Per Day") %>%
@@ -482,7 +486,9 @@ output$dailynewcases <- renderHighchart(
                     select(date, New=new_confirmed),
                   name="New Cases")
 )
+```
 
+```{r worldnewcasesoutput}
 highchartOutput("dailynewcases")
 ```
 
@@ -495,7 +501,7 @@ Inputs {.sidebar}
 
 ### Input
 
-```{r}
+```{r usinput,context="server",include=F}
 output$usinputs <- renderUI({
   cases <- dataset$cases_county_nyt()
   
@@ -523,7 +529,9 @@ output$usinputs <- renderUI({
                  selected="Pop Density")
   )
 })
+```
 
+```{r usinputoutput}
 uiOutput("usinputs")
 ```
 
@@ -532,11 +540,10 @@ Row
 
 ### US Map
 
-```{r usmapdata,include=F}
-us_map_filter <- reactive(geometries %>% 
-  filter(! is.na(county)) %>% 
-  left_join(
-    dataset$cases_county_nyt() %>%
+```{r usmapdata,context="server-start",include=F}
+make_us_cases <- function(county_cases, state_cases) geometries %>% 
+  inner_join(
+    county_cases %>%
       filter(cases > 0) %>% 
       inner_join(locations) %>% 
       rename(state=Sublocation, county=Subsublocation)
@@ -546,19 +553,37 @@ us_map_filter <- reactive(geometries %>%
       pop_density = pop / landsqmi, 
       housing_density = housing_units / landsqmi, 
       occupancy_density = pop / housing_units,
-      rate = round((cases / pop) * 1e6), 
-      label = paste0("<font color='blue'>", 
-                     county, ", ", state, "</font><br/>", 
-                     "Population: ", pop, "<br/>",
-                     "Confirmed Cases: ",  cases, "<br/>", 
-                     "Infection Rate: ", rate, " / 100,000 ppl<br/>",
-                     "Deaths: ", deaths, "<br/>"),
-      label = map(label, HTML)
-    )
-)
+      rate = round((cases / pop) * 1e6)
+    ) %>% 
+  select(-aland, -awater) %>%
+  group_by(loc_id) %>%
+  arrange(date) %>% 
+  mutate(
+    new_cases = cases - lag(cases, 1, default=0), 
+    growth_rate = new_cases / lag(cases, 1, default = 1), 
+    delta_growth_rate = growth_rate / lag(growth_rate, 1, default=1),
+    label = paste0("<font color='blue'>", 
+                 if_else(is.na(county), state, paste0(county, ", ", state)), "---", date, "</font><br/>",
+                 "<hr>",
+                 "Population: ", pop, "<br/>",
+                 "Density: ", pop_density, " ppl/sqmi<br/>",
+                 "Housing Units: ", housing_density, " /sqmi<br/>",
+                 "<hr>",
+                 "Confirmed Cases: ",  cases, "<br/>", 
+                 "Infection Rate: ", rate, " / 100,000 ppl<br/>",
+                 "Deaths: ", deaths, "<br/>",
+                 "<hr>",
+                 "New Cases: ", new_cases, "<br/>", 
+                 "Growth: ", growth_rate, " d/d<br/>",
+                 "Change in Growth: ", delta_growth_rate, "<br/>"),
+   label = map(label, HTML)
+  )
+  
+
+us_map_filter <- reactive(make_us_cases(dataset$cases_county_nyt()))
 ```
 
-```{r usmap}
+```{r usmap,context="server",include=F}
 shadeWeight <- 0.3
 shadeOpacity <- 0.7
 
@@ -576,18 +601,21 @@ pal_cases <- colorNumeric("Reds", domain=log10(10^(0:6)))
 vis_options <- list(
   "Pop Density" = list(
     pal = quote(~pal_density_pop(log10(pop_density))), 
+    field = quote(log10(pop_density)),
     legend_pal = pal_density_pop, 
     legend_vals = log10(10^(-1:4)),
     legend_trans = labelFormat(transform=function(x) 10^x, suffix = "ppl / sqmi")
   ), 
   "Housing Density" = list(
     pal = quote(~pal_density_hous(log10(housing_density))), 
+    field = quote(log10(housing_density)),
     legend_pal = pal_density_hous, 
     legend_vals = log10(10^(-2:4)),
     legend_trans = labelFormat(transform=function(x) 10^x, suffix = "homes / sqmi")
   ), 
   "Occupancy Density" = list(
     pal = quote(~pal_density_occ(log10(occupancy_density))), 
+    field = quote(log10(occupancy_density)),
     legend_pal = pal_density_occ, 
     legend_vals = 0:6,
     legend_trans = labelFormat(suffix = "ppl / home")
@@ -667,7 +695,9 @@ observeEvent(input$usshade, {
       addLayersControl(overlayGroups="Confirmed Cases")
   }
 })
+```
 
+```{r usmapoutput}
 leafletOutput("usview")
 ```
 
@@ -677,7 +707,7 @@ Row
 
 ### US Cases
 
-```{r uscasedata,include=F}
+```{r uscasedata,context="server-start",include=F}
 us_case_summary <- reactive(dataset$cases_state_nyt() %>%
   ungroup() %>%
   select(date, cases, deaths) %>% 
@@ -686,7 +716,7 @@ us_case_summary <- reactive(dataset$cases_state_nyt() %>%
 )
 ```
 
-```{r uscasesflat}
+```{r uscasesflat,context="server"}
 output$uscaseslinear <- renderHighchart({
   req(input$uslog)
   highchart() %>% 
@@ -707,14 +737,16 @@ output$uscaseslinear <- renderHighchart({
       mapping=hcaes(x=date, y=val, group=Series)
     )
 })
+```
 
+```{r uscaseslinearoutput}
 highchartOutput("uscaseslinear")
 ```
 
 
 ### New Cases Per Day
 
-```{r usewcases}
+```{r usewcases,context="server",include=F}
 output$usdailynewcases <- renderHighchart(
   highchart() %>% 
     hc_title(text="New Cases Per Day") %>%
@@ -728,13 +760,15 @@ output$usdailynewcases <- renderHighchart(
                   mapping=hcaes(x=date, y=New),
                   name="New Cases")
 )
+```
 
+```{r usnewcasesoutput}
 highchartOutput("usdailynewcases")
 ```
 
 ### New Hospitalizations Per Day
 
-```{r ushosp}
+```{r ushosp,context="server",include=F}
 output$ushospperday <- renderHighchart({
   highchart() %>% 
     hc_title(text="New Hospitalizations Per Day (U.S.)") %>%
@@ -752,7 +786,9 @@ output$ushospperday <- renderHighchart({
       name="New Hospitalizations"
     )
 })
+```
 
+```{r ushospoutput}
 highchartOutput("ushospperday")
 ```
 
@@ -762,17 +798,15 @@ US Testing
 Inputs {.sidebar}
 -----------------------------------------------------------------------
 
-```{r testinginputs}
+```{r ustesting_input}
 checkboxGroupInput("testingstates", label = "States to Show", 
                    choices = state.name, 
                    selected=state.name)
+```
 
+```{r ustesting_data,context="server-start"}
 covid_track_to_show <- reactive(
   dataset$covid_track() %>% 
-    semi_join(
-      locations %>% filter(Sublocation %in% input$testingstates,
-                           is.na(Subsublocation))
-    ) %>%
     select(-state, -fips, -dateChecked) %>% 
     group_by(date, loc_id) %>% 
     summarize_all(~as.numeric(max(., na.rm=T))) %>%
@@ -784,37 +818,47 @@ covid_track_to_show <- reactive(
 Row
 -----------------------------------------------------
 
+```{r ustesting_filter,context="server",include=F}
+covid_track_filtered <- reactive(covid_track_to_show() %>% 
+                                   semi_join(
+                                     locations %>% filter(Sublocation %in% input$testingstates,
+                                                          is.na(Subsublocation))
+                                   )
+)
+```
+
 ### US Testing (Cumulative)
 
-```{r ustesting}
+```{r ustesting,context="server",include=F}
 output$ustesting <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
     hc_title(text="Cumulative US Testing") %>%
     hc_yAxis(title="") %>%
     hc_xAxis(type="datetime") %>% 
-    hc_add_series(data = covid_track_to_show() %>% 
-                        select(date, positive, negative, pending) %>% 
-                        group_by(date) %>% 
-                        summarize_all(~sum(., na.rm=T)) %>%
-                        gather(key="Series", val="val", -date), 
+    hc_add_series(data = covid_track_filtered() %>% 
+                    select(date, positive, negative, pending) %>% 
+                    group_by(date) %>% 
+                    summarize_all(~sum(., na.rm=T)) %>%
+                    gather(key="Series", val="val", -date), 
                   type="column", 
                   mapping=hcaes(x=date, y=val, group=Series, fill=Series))
 )
-
+```
+```{r ustestingoutput}
 highchartOutput("ustesting")
 ```
 
 ### US Testing (Incremental)
 
-```{r ustestinginc}
+```{r ustestinginc_server,context="server",include=F}
 output$ustestinginc <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
     hc_title(text="Incremental US Testing") %>%
     hc_yAxis(title="") %>%
     hc_xAxis(type="datetime") %>% 
-    hc_add_series(data = covid_track_to_show() %>% 
+    hc_add_series(data = covid_track_filtered() %>% 
                     select(date, positive, negative) %>% 
                     group_by(date) %>% 
                     summarize_all(~sum(., na.rm=T)) %>%
@@ -824,7 +868,8 @@ output$ustestinginc <- renderHighchart(
                   type="column", 
                   mapping=hcaes(x=date, y=val, group=Series, fill=Series))
 )
-
+```
+```{r ustestinginc_output}
 highchartOutput("ustestinginc")
 ```
 
@@ -833,7 +878,7 @@ Row
 
 ### Tests Per Day By State
 
-```{r testsperdaybystate}
+```{r testsperdaybystate_server,context="server",include=F}
 output$ustestingbystateinc <- renderHighchart(
   highchart() %>%
     #hc_plotOptions(column=list(stacking="normal")) %>%
@@ -841,7 +886,7 @@ output$ustestingbystateinc <- renderHighchart(
     hc_xAxis(type="datetime") %>% 
     hc_yAxis(title="") %>%
     hc_add_series(
-      data=covid_track_to_show() %>% 
+      data=covid_track_filtered() %>% 
         select(date, positiveIncrease, negativeIncrease, loc_id) %>% 
         mutate(tests = positiveIncrease + negativeIncrease) %>%
         select(-positiveIncrease, -negativeIncrease) %>% 
@@ -851,7 +896,8 @@ output$ustestingbystateinc <- renderHighchart(
       type="line"
     )
 )
-
+```
+```{r testsperdaybystate_output}
 highchartOutput("ustestingbystateinc")
 ```
 
@@ -860,7 +906,7 @@ New York City Testing
 
 ### New York City
 
-```{r nymap}
+```{r nymap_startup,context="server-start",include=F}
 nyzip_geoms <- reactive(
   zips %>% 
     inner_join(dataset$nyzipcode() %>% mutate(zipcode=as.character(zipcode))) %>% 
@@ -876,7 +922,9 @@ nyzip_geoms <- reactive(
 ny_bbox <- st_bbox(zips$geometry)
 ny_centroid <- st_centroid(zips$geometry)
 rate_pal <- colorNumeric("Reds", domain=c(0, 1))
+```
 
+```{r nymap_server,context="server",include=F}
 output$nyview <- renderLeaflet({
   leaflet(nyzip_geoms()) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>% 
@@ -888,7 +936,9 @@ output$nyview <- renderLeaflet({
                fillOpacity = 0.4, fillColor=~rate_pal(rate), 
                radius = ~(sqrt(Positive) * 30)) 
 })
+```
 
+```{r nymap_output}
 leafletOutput("nyview")
 ```
 
@@ -899,29 +949,33 @@ Interventions
 Inputs {.sidebar}
 -----------------------------------------------------------------------
 
-```{r interventioninputs}
+```{r intervention_start,context="server-start",include=F}
+avail_states <- reactive(dataset$interventions() %>%
+  inner_join(locations) %>%
+  use_series(Sublocation) %>% unique() %>% sort())
+```
+
+```{r interventioninputs_server,context="server"}
 output$interventioninputs <- renderUI({
-  avail_states <- dataset$interventions() %>%
-    inner_join(locations) %>%
-    use_series(Sublocation) %>% unique() %>% sort()
-  
   tagList(
       checkboxGroupInput("interventionstates", label = "States to Show", 
-                   choices = avail_states, 
+                   choices = avail_states(), 
                    selected=c("New York", "California")),
       radioButtons("interventionlog", label="Log or Linear", choices=c("logarithmic", "linear"), selected="logarithmic"),
       sliderInput("interventionstartcases", label="Start # of Cases", 
               min=1, max=1000, value=10)
   )
 })
+```
 
+```{r interventionsinputs_output}
 uiOutput("interventioninputs")
 ```
 
 Row 
 ---------------------------------------------------------------------- 
 
-```{r interventions}
+```{r interventions_startup,context="server-start",include=F}
 interventions_with_cases <- reactive({
   interventions <- dataset$interventions()
   
@@ -933,7 +987,9 @@ interventions_with_cases <- reactive({
     inner_join(locations) %>% 
     mutate(name = paste0(Subsublocation, ", ", Sublocation))
 })
+```
 
+```{r interventions_server,context="server",include=F}
 filtered_interventions_with_cases <- reactive({
   req(input$interventionstartcases)
   req(input$interventionstates)
@@ -972,6 +1028,8 @@ output$interventions <- renderHighchart({
                     pointFormat="{point.name}<br/>Date: {point.date}<br/>Cases: {point.cases}"
                   ))
 })
+```
 
+```{r interventions_output}
 highchartOutput("interventions")
 ```

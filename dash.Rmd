@@ -471,19 +471,20 @@ world_click_state <- reactive(label="worldmapclick", {
 })
 
 world_case_summary <- reactive(label="world_case_summary", {
-  cases <- world_cases_jh()
+  cases_input <- world_cases_jh()
   click_state <- world_click_state()
   
   if (is.na(click_state)) {
-    cases %>% 
+    cases_input %>% 
      ungroup() %>%
      group_by(date) %>%
      select(-loc_id) %>%
      summarize_all(sum)
   } else {
-    cases %>% 
+    cases_input %>% 
       filter(loc_id == click_state$loc_id[1]) %>% 
-      ungroup()
+      ungroup() %>%
+      filter(confirmed > 0)
   }
 })
 
@@ -662,7 +663,7 @@ shadeOpacity <- 0.7
 usbox <- st_bbox(continental_us$us)
 uscenter <- st_centroid(continental_us$us)
 
-pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 2000)))
+pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 30000)))
 pal_density_hous <- colorNumeric("Greens", domain = log10(c(1e-2, 1e4)))
 pal_density_occ <- colorNumeric("Blues", domain = c(0, 3))
 pal_rate <- colorNumeric("Oranges", domain = log10(c(1, 1e4)))
@@ -674,7 +675,7 @@ vis_options <- list(
     field = quote(log10(pop_density)),
     legend_pal = pal_density_pop, 
     legend_bins = 5,
-    legend_vals = c(-1, 4),
+    legend_vals = c(-1, log10(30000)),
     legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
   ), 
   "Housing Density" = list(
@@ -865,7 +866,8 @@ output$uscaseslinear <- renderHighchart({
     hc_add_series(
       type="line",
       data=us_case_summary() %>% 
-        gather(key="Series", value="val", -date), 
+        gather(key="Series", value="val", -date) %>%
+        filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
     )
 })
@@ -1152,7 +1154,7 @@ output$interventions_rate <- renderHighchart({
                   tooltip=list(
                     pointFormat="Date: {point.date}<br/>Cases: {point.cases}<br/>Growth Rate: {point.growth_rate}"
                   )) %>% 
-    hc_yAxis(title="Growth Rate", type="linear", min=1) %>%
+    hc_yAxis(title="Growth Rate", type="linear", min=-1) %>%
     hc_add_series(data=intervention_points(), type="point", 
                   mapping=hcaes(x=days, y=growth_rate, fill=name,
                                 color=name, group=intervention), 
@@ -1164,7 +1166,7 @@ output$interventions_rate <- renderHighchart({
 })
 ```
 
-### Case Growth Rate
+### Case Growth Rate (New Cases / Prior Day's Cases - 1)
 
 ```{r interventions_growth_output}
 highchartOutput("interventions_rate")

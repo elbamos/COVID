@@ -444,24 +444,67 @@ observeEvent(world_cases(), {
 leafletOutput("worldview")
 ```
 
+```{r worldview_handle_clicks,context="server",include=F}
+click_d_threshold <- 20 
+
+world_click_state <- reactive(label="worldmapclick", {
+  if (is.null(input$worldview_click)) {NA}
+  else {
+    lat <- input$worldview_click$lat
+    lng <- input$worldview_click$lng
+    
+    target <- st_point(x=c(lng, lat), dim=c("XY"))
+    
+    out <- locations %>% filter(
+      is.na(Subsublocation), 
+      Location != "US" | is.na(Sublocation)
+    ) %>%
+      mutate(
+        pt = map2(lng, lat, ~st_point(c(.x, .y), dim="XY")), 
+        d = unlist(map(pt, ~ st_distance(target, .x)))
+      ) %>%
+      top_n(n=1, wt=-d)
+    
+    if (out$d[1] < click_d_threshold) {out}
+    else {NA}
+  }
+})
+
+world_case_summary <- reactive(label="world_case_summary", {
+  cases <- world_cases_jh()
+  click_state <- world_click_state()
+  
+  if (is.na(click_state)) {
+    cases %>% 
+     ungroup() %>%
+     group_by(date) %>%
+     select(-loc_id) %>%
+     summarize_all(sum)
+  } else {
+    cases %>% 
+      filter(loc_id == click_state$loc_id[1]) %>% 
+      ungroup()
+  }
+})
+
+
+world_click_name <- reactive({
+  click_state = world_click_state()
+  if (is.na(click_state)) {"Global"}
+  else if (is.na(click_state$Sublocation[1])) {click_state$Location[1]}
+  else {paste0(click_state$Sublocation[1], ", ", click_state$Location[1])}
+})
+```
+
 Row {data-height=300}
 ----------------------------------------------------
 
-### World Cases Flat
-
-```{r worldcasesummary,context="server",include=F}
-world_case_summary <- reactive(world_cases_jh() %>%
-                                 ungroup() %>%
-                                 group_by(date) %>%
-                                 select(-loc_id) %>%
-                                 summarize_all(sum)
-)
-```
+### Cases
 
 ```{r worldcases,context="server",include=F}
 output$worldcases <- renderHighchart(
   highchart()  %>%
-    hc_title(text = "Cases") %>%
+    hc_title(text = paste0("Cases (", isolate(world_click_name()), ")")) %>%
     hc_yAxis(title = "", type = input$worldscale) %>%
     hc_xAxis(type = "datetime") %>%
     hc_add_series(
@@ -489,7 +532,7 @@ highchartOutput("worldcases")
 ```{r worldnewcases,context="server"}
 output$dailynewcases <- renderHighchart(
   highchart()  %>%
-    hc_title(text = "New Cases Per Day") %>%
+    hc_title(text = paste0("New Cases Per Day (", isolate(world_click_name()), ")")) %>%
     hc_yAxis(title = "") %>%
     hc_xAxis(type = "datetime") %>%
     hc_add_series(

@@ -522,7 +522,8 @@ output$worldcases <- renderHighchart(
         ) %>%
         mutate(Active = Confirmed - Deaths - Recovered) %>%
         gather(key = "Series", value = "val",-date)
-    )
+    ) %>%
+    hc_tooltip(shared=TRUE)
 )
 ```
 
@@ -872,7 +873,8 @@ output$uscaseslinear <- renderHighchart({
         gather(key="Series", value="val", -date) %>%
         filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
-    )
+    ) %>%
+    hc_tooltip(shared=T)
 })
 ```
 
@@ -992,7 +994,8 @@ output$ustestingbystateinc <- renderHighchart(
         select(-loc_id),
       mapping=hcaes(x=date, y=tests, group=state),
       type="line"
-    )
+    ) %>%
+    hc_tooltip(shared=T)
 )
 ```
 ```{r testsperdaybystate_output}

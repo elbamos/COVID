@@ -490,7 +490,11 @@ world_case_summary <- reactive(label="world_case_summary", {
       filter(confirmed > 0)
   }) %>% 
   arrange(date) %>% 
-  mutate(ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed))
+  mutate(
+    ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed),
+    growth_rate = new_confirmed / dplyr::lag(confirmed, 1), 
+    grma = rollmeanr(growth_rate, k=5, fill=growth_rate)
+  )
 })
 
 
@@ -563,6 +567,29 @@ output$dailynewcases <- renderHighchart(
 highchartOutput("dailynewcases")
 ```
 
+### Growth Rate
+
+```{r world_growth,context="server"}
+output$world_growth <- renderHighchart(
+  highchart()  %>%
+    hc_title(text = paste0("Growth Rate (", isolate(world_click_name()), ")")) %>%
+    hc_yAxis(title = "") %>%
+    hc_xAxis(type = "datetime") %>%
+    hc_add_series(
+      type="line", 
+      data = world_case_summary() %>% 
+        select(date, `Growth Rate` = growth_rate, `Growth Rate 5-day Rolling Average`=grma) %>%
+        gather(key="key", value="value", -date) %>%
+        mutate(value = round(value, 2)), 
+      mapping = hcaes(x = date, y = value, group=key)
+    ) %>%
+    hc_tooltip(shared=T)
+)
+```
+
+```{r world_growth_output}
+highchartOutput("world_growth")
+```
 
 United States
 ================================================

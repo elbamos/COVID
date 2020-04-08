@@ -130,7 +130,9 @@ geometries <- counties %>%
     lat = map(centroid, ~.x[[2]][1]), 
     lng = map(centroid, ~.x[[1]][1]), 
     lat = unlist(lat), 
-    lng = unlist(lng)
+    lng = unlist(lng),
+    point = map2(lng, lat, ~st_point(c(.x, .y), dim="XY")),
+    bbox = map(geometry, ~st_bbox(.))
   ) %>% select(-centroid) 
 
 rm(counties)
@@ -818,7 +820,8 @@ region_click_state <- reactive(label="usmapclick", {
     out <- us_cases_state_county() %>% 
         group_by(loc_id) %>%
         filter(row_number() == 1) %>%
-        filter(st_within(target, geometry, sparse=FALSE, prepared=T)) %>% 
+        filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
+        filter(st_within(target, geometry, sparse=F, prepared=F)) %>% 
         select(state, county, loc_id)
     if (nrow(out) == 0) {NA}
     else {out}

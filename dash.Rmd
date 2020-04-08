@@ -479,7 +479,7 @@ world_case_summary <- reactive(label="world_case_summary", {
      ungroup() %>%
      group_by(date) %>%
      select(-loc_id) %>%
-     summarize_all(sum)
+     summarize_all(~sum(., na.rm=T))
   } else {
     cases_input %>% 
       filter(loc_id == click_state$loc_id[1]) %>% 

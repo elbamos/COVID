@@ -36,6 +36,7 @@ library(USAboundariesData)
 
 # Other
 library(jsonlite)
+library(zoo)
 ```
 
 
@@ -80,7 +81,7 @@ get_new_data_json <- function(tag, url, f) {
 ```
 
 
-```{r global,include=F,context="server-start",cache=T}
+```{r setup_geometry,include=F,context="server-start",cache=T}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
 
@@ -476,7 +477,7 @@ world_case_summary <- reactive(label="world_case_summary", {
   cases_input <- world_cases_jh()
   click_state <- world_click_state()
   
-  if (is.na(click_state)) {
+  (if (is.na(click_state)) {
     cases_input %>% 
      ungroup() %>%
      group_by(date) %>%
@@ -487,7 +488,9 @@ world_case_summary <- reactive(label="world_case_summary", {
       filter(loc_id == click_state$loc_id[1]) %>% 
       ungroup() %>%
       filter(confirmed > 0)
-  }
+  }) %>% 
+  arrange(date) %>% 
+  mutate(ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed))
 })
 
 
@@ -545,6 +548,13 @@ output$dailynewcases <- renderHighchart(
       data = world_case_summary() %>%
         select(date, New = new_confirmed),
       name = "New Cases"
+    ) %>%
+    hc_add_series(
+      type="line", 
+      color="red", 
+      mapping = hcaes(x = date, y = ma), 
+      name="5-day moving average", 
+      data = isolate(world_case_summary())
     )
 )
 ```
@@ -846,7 +856,8 @@ us_case_summary <- reactive(label="us_case_summary", {
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
-           `New Cases` = new_cases)
+           `New Cases` = new_cases) %>% 
+  mutate(ma = rollmeanr(`New Cases`, k=5, fill=`New Cases`))
   
 })
 
@@ -870,6 +881,7 @@ output$uscaseslinear <- renderHighchart({
     hc_add_series(
       type="line",
       data=us_case_summary() %>% 
+        select(-ma) %>% 
         gather(key="Series", value="val", -date) %>%
         filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
@@ -892,10 +904,16 @@ output$usdailynewcases <- renderHighchart(
     hc_xAxis(type="datetime") %>%
     hc_yAxis(title="", type=input$uslog, min=1) %>% 
     hc_add_series(type="column", 
-                  data=us_case_summary() %>% 
-                    select(date, `New Cases`), 
+                  data=us_case_summary(), 
                   mapping=hcaes(x=date, y=`New Cases`),
-                  name="New Cases")
+                  name="New Cases") %>%
+    hc_add_series(
+      type="line", 
+      color="red", 
+      data=isolate(us_case_summary()),
+      mapping=hcaes(x=date, y=ma), 
+      name="5-day moving average"
+    )
 )
 ```
 

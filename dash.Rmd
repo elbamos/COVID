@@ -567,7 +567,7 @@ output$dailynewcases <- renderHighchart(
 highchartOutput("dailynewcases")
 ```
 
-### Growth Rate
+### Growth Rate (new cases / prior cases)
 
 ```{r world_growth,context="server"}
 output$world_growth <- renderHighchart(
@@ -884,7 +884,11 @@ us_case_summary <- reactive(label="us_case_summary", {
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
            `New Cases` = new_cases) %>% 
-  mutate(ma = rollmeanr(`New Cases`, k=5, fill=`New Cases`))
+  mutate(
+    ma = rollmeanr(`New Cases`, k=5, fill=`New Cases`),
+    growth_rate = `New Cases` / dplyr::lag(Cases, 1), 
+    grma = rollmeanr(growth_rate, k=5, fill=growth_rate)
+  )
   
 })
 
@@ -908,7 +912,7 @@ output$uscaseslinear <- renderHighchart({
     hc_add_series(
       type="line",
       data=us_case_summary() %>% 
-        select(-ma) %>% 
+        select(-ma, -growth_rate, -grma) %>% 
         gather(key="Series", value="val", -date) %>%
         filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
@@ -937,7 +941,7 @@ output$usdailynewcases <- renderHighchart(
     hc_add_series(
       type="line", 
       color="red", 
-      data=isolate(us_case_summary()),
+      data=isolate(us_case_summary() %>% select(-grma, -growth_rate)),
       mapping=hcaes(x=date, y=ma), 
       name="5-day moving average"
     )
@@ -946,6 +950,32 @@ output$usdailynewcases <- renderHighchart(
 
 ```{r usnewcasesoutput}
 highchartOutput("usdailynewcases")
+```
+
+### Growth Rate (new cases / prior cases)
+
+```{r us_growth_server,context="server",include=F}
+output$us_growth_rate <- renderHighchart(
+  highchart() %>% 
+    hc_title(text=paste0("Growth Rate (", isolate(click_state_name()), ")")) %>%
+    hc_xAxis(type="datetime") %>%
+    hc_yAxis(title="", type="linear") %>% 
+    hc_add_series(
+      type="line", 
+      data=us_case_summary() %>% 
+        select(
+          date, 
+          `Growth Rate` = growth_rate, 
+          `Growth Rate 5-day Moving Average` = grma
+        ) %>% 
+        gather(key="key", value="value", -date),
+      mapping=hcaes(x=date, y=value, group=key)
+    )
+)
+```
+
+```{r us_growth_output}
+highchartOutput("us_growth_rate")
 ```
 
 US Testing

@@ -631,8 +631,8 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
   arrange(date) %>%
   mutate(
     new_cases = cases - lag(cases, 1, default = 0),
-    growth_rate = (new_cases / lag(cases, 1, default = 1)) - 1,
-    delta_growth_rate = (growth_rate / lag(growth_rate, 1, default = 1)) - 1,
+    growth_rate = (new_cases / lag(cases, 1, default = 1)),
+    delta_growth_rate = (growth_rate / lag(growth_rate, 1, default = 1)),
     label = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
       "<hr>",
@@ -1154,7 +1154,7 @@ output$interventions_rate <- renderHighchart({
                   tooltip=list(
                     pointFormat="Date: {point.date}<br/>Cases: {point.cases}<br/>Growth Rate: {point.growth_rate}"
                   )) %>% 
-    hc_yAxis(title="Growth Rate", type="linear", min=-1) %>%
+    hc_yAxis(title="Growth Rate", type="logarithmic") %>%
     hc_add_series(data=intervention_points(), type="point", 
                   mapping=hcaes(x=days, y=growth_rate, fill=name,
                                 color=name, group=intervention), 
@@ -1166,7 +1166,7 @@ output$interventions_rate <- renderHighchart({
 })
 ```
 
-### Case Growth Rate (New Cases / Prior Day's Cases - 1)
+### Case Growth Rate (New Cases / Prior Day's Cases)
 
 ```{r interventions_growth_output}
 highchartOutput("interventions_rate")

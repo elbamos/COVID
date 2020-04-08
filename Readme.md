@@ -4,8 +4,8 @@ If you're looking for reliable epidemiological advice, this isn't where you shou
 
 ## Status
 
-- The primary data sources are in (Johns Hopkins, county-and-state level from NY Times, and state level testing data from COVID track)
-- There are a few simple initial visualizations
+- The primary data sources are in (Johns Hopkins, county-and-state level from NY Times, the Keysteon Strategy list of interventions,  state level testing data from COVID track, and the NYC DOH).  Data sources are polled periodically.  
 - I haven't put in any modelling or epidemiology yet
 
-To update the incorporated data sources use `git submodule update --remote`
+
+[The visualization is online here.](https://amose.shinyapps.io/COVID-19/)

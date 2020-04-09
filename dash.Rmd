@@ -799,58 +799,65 @@ output$usview <- renderLeaflet({
   ) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
     setMaxBounds(usbox[1], usbox[2], usbox[3], usbox[4]) %>%
-    setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=4)
+    setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=4) 
 })
 
-observe({
-  req(input$usshade)
-  selection <- input$usshade
+adjustUSMapLegend <- function(map, groups) {
+  selection <- groups[1]
+  
   vis_parts <- vis_options[[selection]]
   
+  map %>% 
+     addLegend(title=selection, 
+          pal=vis_parts$legend_pal, 
+          group=selection,
+          values=vis_parts$legend_vals,
+          bins=vis_parts$legend_bins,
+          labFormat=vis_parts$legend_trans, 
+          position="bottomleft"
+     )
+}
+
+observe(label="update_usmap", {
   map <- leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
-    clearShapes() %>% 
-    addPolygons(opacity = shadeOpacity,
-                group = selection,
-                weight = shadeWeight,
-                fillColor = eval(vis_parts$pal),
-                fillOpacity = shadeOpacity,
-                label = ~label,
-                highlight = highlightOptions(
-                  weight=5, fillOpacity=1.0, bringToFront = TRUE
-                )
-    )
+    clearShapes() %>% clearControls()
   
-  if (selection != "Cases") {
-    map %>% addCircles(group="Confirmed Cases",
+  for (selection in names(vis_options)) {
+    vis_parts <- vis_options[[selection]]
+     map %<>% addPolygons(
+        opacity = shadeOpacity,
+        group = selection,
+        weight = shadeWeight,
+        fillColor = eval(vis_parts$pal),
+        fillOpacity = shadeOpacity,
+        label = ~label,
+        highlight = highlightOptions(
+          weight=5, fillOpacity=1.0, bringToFront = TRUE
+        )
+     ) 
+  }
+
+  map %>% addCircles(group="Confirmed Cases",
                        lat=~lat, 
                        lng=~lng, 
                        stroke=F,
                        fillOpacity=0.2,
                        color="red",
-                       radius=~(sqrt(cases) * 1000))
-  }
+                       radius=~(sqrt(cases) * 1000)) %>%
+      addLayersControl(overlayGroups="Confirmed Cases", baseGroups = names(vis_options))
+  
+  groups <- isolate(input$usview_groups) 
+  if (! is.null(groups)) adjustUSMapLegend(map, groups)
 })
 
-observeEvent(input$usshade, {
-  req(input$usshade) 
-  selection <- input$usshade
-  vis_parts <- vis_options[[selection]]
+observeEvent(input$usview_groups, 
+             label="handle_usmap_legend", {
+  map <- leafletProxy('usview') %>% 
+    clearControls() 
   
-  map <- leafletProxy("usview", deferUntilFlush=T) %>%
-    clearControls() %>%
-    addLegend(title=selection, 
-              pal=vis_parts$legend_pal, 
-              values=vis_parts$legend_vals,
-              bins=vis_parts$legend_bins,
-              labFormat=vis_parts$legend_trans, 
-              position="bottomleft"
-    )
+  selection <- isolate(input$usview_groups)
   
-  
-  if (selection != "Cases") {
-    map %>%
-      addLayersControl(overlayGroups="Confirmed Cases")
-  }
+  adjustUSMapLegend(map, selection)
 })
 ```
 

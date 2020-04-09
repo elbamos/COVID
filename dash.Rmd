@@ -562,6 +562,7 @@ output$dailynewcases <- renderHighchart(
     hc_add_series(
       type="line", 
       color="red", 
+      marker=list(enabled=F), 
       mapping = hcaes(x = date, y = ma), 
       name="5-day moving average", 
       data = isolate(world_case_summary())
@@ -583,6 +584,7 @@ output$world_growth <- renderHighchart(
     hc_xAxis(type = "datetime") %>%
     hc_add_series(
       type="line", 
+      marker=list(enabled=F), 
       data = world_case_summary() %>% 
         select(date, `Growth Rate` = growth_rate, `Growth Rate 5-day Rolling Average`=grma) %>%
         gather(key="key", value="value", -date) %>%
@@ -915,7 +917,7 @@ click_state_name <- reactive({
 })
 ```
 
-```{r uscasesflat,context="server"}
+```{r us_cumulative_server,context="server"}
 output$uscaseslinear <- renderHighchart({
   req(input$uslog)
   highchart() %>% 
@@ -924,6 +926,7 @@ output$uscaseslinear <- renderHighchart({
     hc_xAxis(type="datetime") %>% 
     hc_add_series(
       type="line",
+      marker=list(enabled=F), 
       data=us_case_summary() %>% 
         select(-ma, -growth_rate, -grma) %>% 
         gather(key="Series", value="val", -date) %>%
@@ -934,7 +937,7 @@ output$uscaseslinear <- renderHighchart({
 })
 ```
 
-```{r uscaseslinearoutput}
+```{r us_cumulative_output}
 highchartOutput("uscaseslinear")
 ```
 
@@ -954,6 +957,7 @@ output$usdailynewcases <- renderHighchart(
     hc_add_series(
       type="line", 
       color="red", 
+      marker=list(enabled=F), 
       data=isolate(us_case_summary() %>% select(-grma, -growth_rate)),
       mapping=hcaes(x=date, y=ma), 
       name="5-day moving average"
@@ -975,6 +979,7 @@ output$us_growth_rate <- renderHighchart(
     hc_yAxis(title="", type="linear") %>% 
     hc_add_series(
       type="line", 
+      marker=list(enabled=F), 
       data=us_case_summary() %>% 
         select(
           date, 
@@ -1069,10 +1074,9 @@ Row
 ```{r testsperdaybystate_server,context="server",include=F}
 output$ustestingbystateinc <- renderHighchart(
   highchart() %>%
-    #hc_plotOptions(column=list(stacking="normal")) %>%
     hc_title(text="Daily Testing By State") %>%
     hc_xAxis(type="datetime") %>% 
-    hc_yAxis(title="") %>%
+    hc_yAxis(title="", min=0) %>%
     hc_add_series(
       data=covid_track_filtered() %>% 
         select(date, positiveIncrease, negativeIncrease, loc_id) %>% 
@@ -1081,7 +1085,8 @@ output$ustestingbystateinc <- renderHighchart(
         inner_join(locations %>% select(loc_id, state=Sublocation)) %>% 
         select(-loc_id),
       mapping=hcaes(x=date, y=tests, group=state),
-      type="line"
+      type="line",
+      marker=list(enabled=F)
     ) %>%
     hc_tooltip(shared=T)
 )
@@ -1208,11 +1213,12 @@ intervention_points <- reactive(filtered_interventions_with_cases() %>%
 output$interventions <- renderHighchart({
   req(input$interventionlog)
   highchart() %>% 
-    hc_add_series(data=filtered_interventions_with_cases(), type="line", 
+    hc_add_series(data=filtered_interventions_with_cases(), 
+                  type="line", 
                   mapping=hcaes(x=days, y=cases, group=name), 
                   colorAxis=0,
                   lineWidth=1, 
-                  marker=list(enabled=FALSE),
+                  marker=list(enabled=F),
                   tooltip=list(
                     pointFormat="Date: {point.date}<br/>Cases: {point.cases}"
                   )) %>% 
@@ -1244,7 +1250,7 @@ output$interventions_rate <- renderHighchart({
                   mapping=hcaes(x=days, y=growth_rate, group=name), 
                   colorAxis=0,
                   lineWidth=1, 
-                  marker=list(enabled=FALSE),
+                  marker=list(enabled=F),
                   tooltip=list(
                     pointFormat="Date: {point.date}<br/>Cases: {point.cases}<br/>Growth Rate: {point.growth_rate}"
                   )) %>% 

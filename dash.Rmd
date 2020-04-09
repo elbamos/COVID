@@ -8,15 +8,15 @@ runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
-# TODO: US MAP Rate legend is wrong
-# TODO: Add charts for individual states & counties
-# TODO: Add proportions of populations as a view for US
+# TODO: Add view of proportion of tests that are positive to the US view
+# TODO: add deselect all to us testing page
 # TODO: Animate the bar charts next to the maps
 ```
 
 ```{r setup,context="setup",include=FALSE}
 library(flexdashboard)
 library(shiny)
+library(shinyWidgets)
 
 # Tidyverse
 library(readr)
@@ -384,6 +384,12 @@ output$worldoverviewinputs <- renderUI({
       "Scale",
       choices = list(Linear = "linear",
                      Logarithmic = "logarithmic")
+    ),
+    sliderTextInput(
+      "worldmincases", 
+      "Minimum Number of Cases", 
+      choices = 10^(0:4),
+      selected = 1
     )
   )
 })
@@ -486,15 +492,15 @@ world_case_summary <- reactive(label="world_case_summary", {
   } else {
     cases_input %>% 
       filter(loc_id == click_state$loc_id[1]) %>% 
-      ungroup() %>%
-      filter(confirmed > 0)
+      ungroup()
   }) %>% 
   arrange(date) %>% 
   mutate(
     ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed),
     growth_rate = new_confirmed / dplyr::lag(confirmed, 1), 
     grma = rollmeanr(growth_rate, k=5, fill=growth_rate)
-  )
+  ) %>%
+    filter(confirmed >= input$worldmincases)
 })
 
 
@@ -628,7 +634,13 @@ output$usinputs <- renderUI({
                            "Occupancy Density", 
                            "Infection Rate", 
                            "Cases"), 
-                 selected="Pop Density")
+                 selected="Pop Density"),
+    sliderTextInput(
+      "usmincases", 
+      "Minimum Number of Cases", 
+      choices = 10^(0:3),
+      selected = 1
+    )
   )
 })
 ```
@@ -759,12 +771,13 @@ us_cases_state_county <- reactive({
   us_cases_with_geo() %>%
     filter(
       (scale == "County" & ! is.na(county)) | (scale == "State" & is.na(county)),
-      cases > 0
+      cases >= input$usmincases
     ) 
 })
 
 us_cases <- reactive({
   req(input$usdate)
+  req(input$usmincases)
 
   us_cases_state_county() %>% 
     filter(

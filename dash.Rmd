@@ -1007,9 +1007,11 @@ Inputs {.sidebar}
 -----------------------------------------------------------------------
 
 ```{r ustesting_input}
-checkboxGroupInput("testingstates", label = "States to Show", 
-                   choices = state.name, 
-                   selected=state.name)
+tagList(
+  checkboxGroupInput("testingstates", label = "States to Show", 
+                     choices = state.name, 
+                     selected=state.name)
+)
 ```
 
 Row

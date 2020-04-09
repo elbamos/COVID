@@ -518,7 +518,8 @@ Row {data-height=300}
 ### Cases
 
 ```{r worldcases,context="server",include=F}
-output$worldcases <- renderHighchart(
+output$worldcases <- renderHighchart({
+  req(input$worldscale)
   highchart()  %>%
     hc_title(text = paste0("Cases (", isolate(world_click_name()), ")")) %>%
     hc_yAxis(title = "", type = input$worldscale) %>%
@@ -534,10 +535,11 @@ output$worldcases <- renderHighchart(
           Recovered = recovered
         ) %>%
         mutate(Active = Confirmed - Deaths - Recovered) %>%
-        gather(key = "Series", value = "val",-date)
+        gather(key = "Series", value = "val",-date),
+        marker=list(enabled=F)
     ) %>%
     hc_tooltip(shared=TRUE)
-)
+})
 ```
 
 ```{r worldcasesoutput}
@@ -547,7 +549,8 @@ highchartOutput("worldcases")
 ### New Cases Per Day
 
 ```{r worldnewcases,context="server"}
-output$dailynewcases <- renderHighchart(
+output$dailynewcases <- renderHighchart({
+  req(input$worldscale)
   highchart()  %>%
     hc_title(text = paste0("New Cases Per Day (", isolate(world_click_name()), ")")) %>%
     hc_yAxis(title = "") %>%
@@ -567,7 +570,7 @@ output$dailynewcases <- renderHighchart(
       name="5-day moving average", 
       data = isolate(world_case_summary())
     )
-)
+})
 ```
 
 ```{r worldnewcasesoutput}
@@ -577,7 +580,8 @@ highchartOutput("dailynewcases")
 ### Growth Rate (new cases / prior cases)
 
 ```{r world_growth,context="server"}
-output$world_growth <- renderHighchart(
+output$world_growth <- renderHighchart({
+  req(input$worldscale)
   highchart()  %>%
     hc_title(text = paste0("Growth Rate (", isolate(world_click_name()), ")")) %>%
     hc_yAxis(title = "") %>%
@@ -592,7 +596,7 @@ output$world_growth <- renderHighchart(
       mapping = hcaes(x = date, y = value, group=key)
     ) %>%
     hc_tooltip(shared=T)
-)
+})
 ```
 
 ```{r world_growth_output}

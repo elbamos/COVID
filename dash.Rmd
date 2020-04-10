@@ -767,7 +767,7 @@ vis_options <- reactive({
       legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
     ),
     "Housing Density" = list(
-      pallete = "viridis", 
+      pallete = "PuOr", 
       pal = quote(log10(housing_density)),
       legend_bins = 6,
       legend_vals = log10(ranges[["housing_density"]]),
@@ -831,6 +831,7 @@ observe(label="update_usmap", {
     clearShapes() %>% clearControls()
   
   vis <- isolate(vis_options())
+  scale <- isolate(input$usscale)
   
   for (selection in names(vis)) {
      vis_parts <- vis[[selection]]
@@ -840,7 +841,7 @@ observe(label="update_usmap", {
      map %<>% addPolygons(
         opacity = shadeOpacity,
         group = selection,
-        weight = shadeWeight,
+        weight = if_else(scale == "State", shadeWeight, .3),
         fillColor = ~ pallete(eval(vis_parts$pal)),
         fillOpacity = shadeOpacity,
         label = ~label,

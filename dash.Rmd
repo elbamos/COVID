@@ -674,7 +674,11 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
     housing_density = housing_units / landsqmi,
     occupancy_density = pop / housing_units,
     rate = round((cases / pop) * 1e5),
-    pos_rate = cases / (cases + negative)
+    pos_rate = cases / (cases + negative),
+    penetrance = cases / housing_units,
+    hosp_rate = hospitalized / cases, 
+    icu_rate = icu / hospitalized, 
+    vent_rate = vent / icu
   ) %>%
   select(-aland,-awater) %>%
   group_by(loc_id) %>%
@@ -692,7 +696,17 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
       "<hr>",
       "Confirmed Cases: ", cases, "<br/>", 
       "Infection Rate: ", rate, " / 100,000 ppl<br/>",
+      "Penetrance: ", round(penetrance, 3), " cases / household<br/>",
       "Deaths: ", deaths, "<br/>",
+      if_else(is.na(county),
+              paste0(
+                "<hr>",
+                "Hospitalized: ", hospitalized, "<br/>",
+                if_else(icu > 0, paste0("ICU: ", icu, "<br/>"), " "),
+                if_else(vent > 0, paste0("Ventilator: ", vent, "<br/>"), " ")
+              )
+              , " "),
+      "Recovered: ", recovered, "<br/>",
       "<hr>",
       "New Cases: ", new_cases, "<br/>",
       "Growth: ", round(growth_rate, 3), " d/d<br/>",
@@ -737,12 +751,12 @@ usbox <- st_bbox(continental_us$us)
 uscenter <- st_centroid(continental_us$us)
 
 vis_options <- reactive({
-  minmax <- us_cases_with_geo() %>%
+  minmax <- us_cases_state_county() %>%
     ungroup() %>%
     as.data.frame() %>% 
     select(pop, cases, deaths, negative, pending, hospitalized, icu, vent, recovered, 
            pop_density, housing_density, occupancy_density, rate, pos_rate, new_cases, 
-           growth_rate, delta_growth_rate) %>% 
+           growth_rate, delta_growth_rate, penetrance, hosp_rate, icu_rate, vent_rate) %>% 
     gather(key="key", value="val") %>%
     filter(!is.na(val), !is.infinite(val), !is.nan(val),
            val > 0 | ! key %in% c("pop_density", "housing_density", "rate", "cases")) %>%
@@ -758,7 +772,7 @@ vis_options <- reactive({
   ranges <- minmax$rng
   names(ranges) <- minmax$key
 
-  list(
+  out <- list(
     "Pop Density" = list(
       pallete = "RdYlBu", 
       pal = quote(log10(pop_density)),
@@ -787,14 +801,43 @@ vis_options <- reactive({
       legend_vals = log10(ranges[["rate"]]),
       legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
     ),
-    "Cases" = list(
+    "Cases/Household" = list(
       pallete = "plasma", 
-      pal = quote(log10(cases)),
-      legend_bins = 6,
-      legend_vals = log10(ranges[["cases"]]),
-      legend_trans = labelFormat(transform=function(x) 10^x)
+      pal = quote(penetrance),
+      legend_bins = 4,
+      legend_vals = ranges[['penetrance']],
+      legend_trans = labelFormat(transform=identity, suffix = " cases / household")
     )
   )
+  
+  if (isolate(input$usscale) == "State") {
+    out <- c(out, list(
+             # "Hospitalization Rate" = list(
+             #   pallete = "Spectral", 
+             #   pal = quote(hosp_rate), 
+             #   legend_bins=6, 
+             #   lengend_vals = ranges[["hosp_rate"]], 
+             #   legend_trans = labelFormat(transform=identity, suffix=" Hospitalizations / Case")
+             # ), 
+             "ICU Rate" = list(
+               pallete = "YlGnBu", 
+               pal = quote(icu_rate), 
+               legend_bins=4, 
+               legend_vals=ranges[["icu_rate"]], 
+               legend_trans=labelFormat(transform=identity, suffix=" ICU Admissions / Hospitalization")
+             ), 
+             "Vent Rate" = list(
+               pallete = "BrBG", 
+               pal = quote(vent_rate), 
+               legend_bins=4, 
+               legend_vals=ranges[["vent_rate"]], 
+               legend_trans=labelFormat(transform=identity, suffix=" Ventilator / ICU Admission")
+             )
+           )
+    )
+  }
+  
+  out
 })
 ```
 
@@ -812,6 +855,7 @@ adjustUSMapLegend <- function(map, groups) {
   selection <- groups[1]
 
   vis_parts <- isolate(vis_options())[[selection]]
+  req(vis_parts)
 
   pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
   
@@ -830,7 +874,7 @@ observe(label="update_usmap", {
   map <- leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
     clearShapes() %>% clearControls()
   
-  vis <- isolate(vis_options())
+  vis <- vis_options()
   scale <- isolate(input$usscale)
   
   for (selection in names(vis)) {
@@ -855,7 +899,7 @@ observe(label="update_usmap", {
                        lat=~lat, 
                        lng=~lng, 
                        stroke=F,
-                       fillOpacity=0.2,
+                       fillOpacity=0.3,
                        color="red",
                        radius=~(sqrt(cases) * 1000)) %>%
       addLayersControl(overlayGroups="Confirmed Cases", baseGroups = names(vis))

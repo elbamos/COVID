@@ -633,14 +633,6 @@ output$usinputs <- renderUI({
                    Logarithmic="logarithmic"
                  ), 
                  selected="linear"),
-    
-    radioButtons("usshade", "Map Shading",
-                 choices=c("Pop Density", 
-                           "Housing Density", 
-                           "Occupancy Density", 
-                           "Infection Rate", 
-                           "Cases"), 
-                 selected="Pop Density"),
     sliderTextInput(
       "usmincases", 
       "Minimum Number of Cases", 
@@ -715,60 +707,6 @@ us_cases_with_geo <- reactive(make_us_cases(dataset$cases_county_nyt(),
                                             dataset$covid_track()))
 ```
 
-```{r usmap_vis_elements,context="server-start",includ=F}
-shadeWeight <- 0.1
-shadeOpacity <- 0.7
-usbox <- st_bbox(continental_us$us)
-uscenter <- st_centroid(continental_us$us)
-
-pal_density_pop <- colorNumeric("RdYlBu", domain = log10(c(.1, 30000)))
-pal_density_hous <- colorNumeric("Greens", domain = log10(c(1e-2, 1e4)))
-pal_density_occ <- colorNumeric("Blues", domain = c(0, 3))
-pal_rate <- colorNumeric("Oranges", domain = log10(c(1, 1e4)))
-pal_cases <- colorNumeric("Reds", domain=log10(10^(0:6)))
-
-vis_options <- list(
-  "Pop Density" = list(
-    pal = quote(~pal_density_pop(log10(pop_density))), 
-    field = quote(log10(pop_density)),
-    legend_pal = pal_density_pop, 
-    legend_bins = 5,
-    legend_vals = c(-1, log10(30000)),
-    legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
-  ), 
-  "Housing Density" = list(
-    pal = quote(~pal_density_hous(log10(housing_density))), 
-    field = quote(log10(housing_density)),
-    legend_pal = pal_density_hous, 
-    legend_bins = 6,
-    legend_vals = c(-2, 4),
-    legend_trans = labelFormat(transform=function(x) 10^x, suffix = " homes / sqmi")
-  ), 
-  "Occupancy Density" = list(
-    pal = quote(~pal_density_occ(log10(occupancy_density))), 
-    field = quote(log10(occupancy_density)),
-    legend_pal = pal_density_occ, 
-    legend_bins = 4, 
-    legend_vals = c(0, 3),
-    legend_trans = labelFormat(suffix = "ppl / home")
-  ), 
-  "Infection Rate" = list(    
-    pal = quote(~pal_rate(log10(rate))), 
-    legend_pal = pal_rate, 
-    legend_bins = 5, 
-    legend_vals = c(0, 4),
-    legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
-  ), 
-  "Cases" = list(
-    pal = quote(~pal_cases(log10(cases))), 
-    legend_pal = pal_cases, 
-    legend_bins = 6, 
-    legend_vals = c(0, 5),
-    legend_trans = labelFormat(transform=function(x) 10^x)
-  )
-)
-```
-
 ```{r usmap_data_filtration,context="server",include=F}
 us_cases_state_county <- reactive({
   req(input$usscale)
@@ -792,6 +730,74 @@ us_cases <- reactive({
 })
 ```
 
+```{r usmap_vis_elements,context="server",includ=F}
+shadeWeight <- 0.1
+shadeOpacity <- 0.7
+usbox <- st_bbox(continental_us$us)
+uscenter <- st_centroid(continental_us$us)
+
+vis_options <- reactive({
+  minmax <- us_cases_with_geo() %>%
+    ungroup() %>%
+    as.data.frame() %>% 
+    select(pop, cases, deaths, negative, pending, hospitalized, icu, vent, recovered, 
+           pop_density, housing_density, occupancy_density, rate, pos_rate, new_cases, 
+           growth_rate, delta_growth_rate) %>% 
+    gather(key="key", value="val") %>%
+    filter(!is.na(val), !is.infinite(val), !is.nan(val),
+           val > 0 | ! key %in% c("pop_density", "housing_density", "rate", "cases")) %>%
+    group_by(key) %>% 
+    summarize(
+      min=min(val), 
+      max=max(val)
+    ) %>%
+    mutate(
+      rng = map2(min, max, ~c(.x, .y))
+    )
+  
+  ranges <- minmax$rng
+  names(ranges) <- minmax$key
+
+  list(
+    "Pop Density" = list(
+      pallete = "RdYlBu", 
+      pal = quote(log10(pop_density)),
+      legend_bins = 5,
+      legend_vals = log10(ranges[["pop_density"]]),
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
+    ),
+    "Housing Density" = list(
+      pallete = "viridis", 
+      pal = quote(log10(housing_density)),
+      legend_bins = 6,
+      legend_vals = log10(ranges[["housing_density"]]),
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " homes / sqmi")
+    ),
+    "Occupancy Density" = list(
+      pallete = "magma", 
+      pal = quote(log10(occupancy_density)),
+      legend_bins = 4,
+      legend_vals = log10(ranges[["occupancy_density"]]),
+      legend_trans = labelFormat(suffix = "ppl / home")
+    ),
+    "Infection Rate" = list(
+      pallete = "inferno", 
+      pal = quote(log10(rate)),
+      legend_bins = 5,
+      legend_vals = log10(ranges[["rate"]]),
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
+    ),
+    "Cases" = list(
+      pallete = "plasma", 
+      pal = quote(log10(cases)),
+      legend_bins = 6,
+      legend_vals = log10(ranges[["cases"]]),
+      legend_trans = labelFormat(transform=function(x) 10^x)
+    )
+  )
+})
+```
+
 ```{r usmap,context="server",include=F}
 output$usview <- renderLeaflet({
   leaflet(
@@ -804,12 +810,14 @@ output$usview <- renderLeaflet({
 
 adjustUSMapLegend <- function(map, groups) {
   selection <- groups[1]
-  
-  vis_parts <- vis_options[[selection]]
+
+  vis_parts <- isolate(vis_options())[[selection]]
+
+  pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
   
   map %>% 
      addLegend(title=selection, 
-          pal=vis_parts$legend_pal, 
+          pal=pallete, 
           group=selection,
           values=vis_parts$legend_vals,
           bins=vis_parts$legend_bins,
@@ -822,13 +830,18 @@ observe(label="update_usmap", {
   map <- leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
     clearShapes() %>% clearControls()
   
-  for (selection in names(vis_options)) {
-    vis_parts <- vis_options[[selection]]
+  vis <- isolate(vis_options())
+  
+  for (selection in names(vis)) {
+     vis_parts <- vis[[selection]]
+
+     pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
+     
      map %<>% addPolygons(
         opacity = shadeOpacity,
         group = selection,
         weight = shadeWeight,
-        fillColor = eval(vis_parts$pal),
+        fillColor = ~ pallete(eval(vis_parts$pal)),
         fillOpacity = shadeOpacity,
         label = ~label,
         highlight = highlightOptions(
@@ -844,7 +857,7 @@ observe(label="update_usmap", {
                        fillOpacity=0.2,
                        color="red",
                        radius=~(sqrt(cases) * 1000)) %>%
-      addLayersControl(overlayGroups="Confirmed Cases", baseGroups = names(vis_options))
+      addLayersControl(overlayGroups="Confirmed Cases", baseGroups = names(vis))
   
   groups <- isolate(input$usview_groups) 
   if (! is.null(groups)) adjustUSMapLegend(map, groups)

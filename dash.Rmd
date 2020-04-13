@@ -81,7 +81,7 @@ get_new_data_json <- function(tag, url, f) {
 ```
 
 
-```{r setup_geometry,include=F,context="server-start",cache=T}
+```{r global,include=F,context="data",cache=T}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
 
@@ -773,6 +773,13 @@ vis_options <- reactive({
   names(ranges) <- minmax$key
 
   out <- list(
+    "Infection Rate" = list(
+      pallete = "inferno", 
+      pal = quote(log10(rate)),
+      legend_bins = 5,
+      legend_vals = log10(ranges[["rate"]]),
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
+    ),
     "Pop Density" = list(
       pallete = "RdYlBu", 
       pal = quote(log10(pop_density)),
@@ -793,13 +800,6 @@ vis_options <- reactive({
       legend_bins = 4,
       legend_vals = log10(ranges[["occupancy_density"]]),
       legend_trans = labelFormat(suffix = "ppl / home")
-    ),
-    "Infection Rate" = list(
-      pallete = "inferno", 
-      pal = quote(log10(rate)),
-      legend_bins = 5,
-      legend_vals = log10(ranges[["rate"]]),
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
     ),
     "Cases/Household" = list(
       pallete = "plasma", 

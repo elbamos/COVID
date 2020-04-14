@@ -616,6 +616,7 @@ output$usinputs <- renderUI({
   cases <- dataset$cases_county_nyt()
   
   tagList(
+    p("Use the icon in the upper right corner of the map to change viewed metric. Click on locations to zoom the charts."),
     sliderInput("usdate", "Date:",
                 min=min(cases$date), 
                 max=max(cases$date), 
@@ -687,6 +688,9 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
     new_cases = cases - lag(cases, 1, default = 0),
     growth_rate = (new_cases / lag(cases, 1, default = 1)),
     delta_growth_rate = (growth_rate / lag(growth_rate, 1, default = 1)),
+    new_cases_ma = rollmeanr(new_cases, k=5, fill=new_cases),
+    growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
+    
     label = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
       "<hr>",
@@ -710,7 +714,9 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
       "<hr>",
       "New Cases: ", new_cases, "<br/>",
       "Growth: ", round(growth_rate, 3), " d/d<br/>",
-      "Change in Growth: ", round(delta_growth_rate, 3), "<br/>"
+      "Change in Growth: ", round(delta_growth_rate, 3), "<br/>",
+      "5-Day Trailing Average New Cases / Day: ", round(new_cases_ma, 3), "<br/>", 
+      "5-Day Trailing Average Growth / Day: ", round(growth_rate_ma, 3), "<br/>"
     ),
     label = map(label, HTML)
   )
@@ -756,10 +762,12 @@ vis_options <- reactive({
     as.data.frame() %>% 
     select(pop, cases, deaths, negative, pending, hospitalized, icu, vent, recovered, 
            pop_density, housing_density, occupancy_density, rate, pos_rate, new_cases, 
-           growth_rate, delta_growth_rate, penetrance, hosp_rate, icu_rate, vent_rate) %>% 
+           growth_rate, delta_growth_rate, penetrance, hosp_rate, icu_rate, vent_rate,
+           new_cases_ma, growth_rate_ma) %>% 
     gather(key="key", value="val") %>%
     filter(!is.na(val), !is.infinite(val), !is.nan(val),
-           val > 0 | ! key %in% c("pop_density", "housing_density", "rate", "cases")) %>%
+           val > 0 | ! key %in% c("pop_density", "housing_density", "rate", "cases", 
+                                  "new_cases_ma", "growth_rate_ma")) %>%
     group_by(key) %>% 
     summarize(
       min=min(val), 
@@ -773,12 +781,33 @@ vis_options <- reactive({
   names(ranges) <- minmax$key
 
   out <- list(
+    "Growth Rate Moving Average" = list(
+      pallete = "Oranges", 
+      pal = quote(log10(100 * growth_rate_ma)), 
+      legend_bins = 5, 
+      legend_vals = log10(100 * c(.01, 1.5)), 
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " % daily growth")
+    ),
     "Infection Rate" = list(
       pallete = "inferno", 
       pal = quote(log10(rate)),
       legend_bins = 5,
       legend_vals = log10(ranges[["rate"]]),
       legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
+    ),
+    "New Cases Moving Average" = list(
+      pallete = "Blues", 
+      pal = quote(log10(new_cases_ma)), 
+      legend_bins=5, 
+      legend_vals=log10(ranges[["new_cases_ma"]]), 
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " new cases per day")
+    ),
+    "Cases" = list(
+      pallete = "Reds", 
+      pal = quote(log10(cases)), 
+      legend_bins=4, 
+      legend_vals=log10(ranges[["cases"]]), 
+      legend_trans = labelFormat(transform=function(x) 10^x)
     ),
     "Pop Density" = list(
       pallete = "RdYlBu", 
@@ -895,14 +924,8 @@ observe(label="update_usmap", {
      ) 
   }
 
-  map %>% addCircles(group="Confirmed Cases",
-                       lat=~lat, 
-                       lng=~lng, 
-                       stroke=F,
-                       fillOpacity=0.3,
-                       color="red",
-                       radius=~(sqrt(cases) * 1000)) %>%
-      addLayersControl(overlayGroups="Confirmed Cases", baseGroups = names(vis))
+  map %<>%
+      addLayersControl(baseGroups = names(vis))
   
   groups <- isolate(input$usview_groups) 
   if (! is.null(groups)) adjustUSMapLegend(map, groups)
@@ -967,12 +990,7 @@ us_case_summary <- reactive(label="us_case_summary", {
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
-           `New Cases` = new_cases) %>% 
-  mutate(
-    ma = rollmeanr(`New Cases`, k=5, fill=`New Cases`),
-    growth_rate = `New Cases` / dplyr::lag(Cases, 1), 
-    grma = rollmeanr(growth_rate, k=5, fill=growth_rate)
-  )
+           `New Cases` = new_cases, new_cases_ma, growth_rate, growth_rate_ma) 
   
 })
 
@@ -997,7 +1015,7 @@ output$uscaseslinear <- renderHighchart({
       type="line",
       marker=list(enabled=F), 
       data=us_case_summary() %>% 
-        select(-ma, -growth_rate, -grma) %>% 
+        select(-new_cases_ma, -growth_rate, -growth_rate_ma) %>% 
         gather(key="Series", value="val", -date) %>%
         filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
@@ -1027,8 +1045,8 @@ output$usdailynewcases <- renderHighchart(
       type="line", 
       color="red", 
       marker=list(enabled=F), 
-      data=isolate(us_case_summary() %>% select(-grma, -growth_rate)),
-      mapping=hcaes(x=date, y=ma), 
+      data=isolate(us_case_summary() %>% select(date, new_cases_ma)),
+      mapping=hcaes(x=date, y=new_cases_ma), 
       name="5-day moving average"
     )
 )
@@ -1053,7 +1071,7 @@ output$us_growth_rate <- renderHighchart(
         select(
           date, 
           `Growth Rate` = growth_rate, 
-          `Growth Rate 5-day Moving Average` = grma
+          `Growth Rate 5-day Moving Average` = growth_rate_ma
         ) %>% 
         gather(key="key", value="value", -date),
       mapping=hcaes(x=date, y=value, group=key)

@@ -81,7 +81,7 @@ get_new_data_json <- function(tag, url, f) {
 ```
 
 
-```{r global,include=F,context="data",cache=T}
+```{r global,include=F,context="data",cache=F}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
 
@@ -218,8 +218,11 @@ world_cases_jh <- reactive({
     arrange(date) %>%
     mutate(
       new_dead = dead - lag(dead, 1, default=0),
-      new_confirmed = confirmed - lag(confirmed, 1, default=0)
-    )
+      new_confirmed = confirmed - lag(confirmed, 1, default=0),
+      new_cases_ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed),
+      growth_rate = new_confirmed / dplyr::lag(confirmed, 1), 
+      growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate)
+  ) 
 })
 ```
 
@@ -1359,4 +1362,85 @@ output$interventions_rate <- renderHighchart({
 
 ```{r interventions_growth_output}
 highchartOutput("interventions_rate")
+```
+
+
+Curve Flattening
+=========================================
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+```{r curve_flattening_inputs_server,context="server"}
+output$curve_flattening_inputs <- renderUI({
+  tagList(
+    radioButtons("curve_flattening_resolution", label="Resolution", choices=c("Countries", "States"), selected="Countries"),
+    sliderTextInput(
+      "curve_flattening_min_cases", 
+      "Minimum Number of Cases", 
+      choices = 10^(0:5),
+      selected = 10000
+    )
+  )
+})
+```
+
+```{r curve_flattening_inputs_output}
+uiOutput("curve_flattening_inputs")
+```
+
+Row
+--------------------------------------
+
+```{r curve_flattening_data,context="server"}
+curve_flattening_data <- reactive({
+  req(input$curve_flattening_resolution)
+  resolution <- input$curve_flattening_resolution
+  
+  if (resolution == "Countries") {
+    world_cases_jh() %>% 
+      select(loc_id, cases=confirmed, date, new_cases_ma) %>% 
+      filter(
+        cases > input$curve_flattening_min_cases, 
+        ! is.na(new_cases_ma)
+      ) %>% 
+      left_join(locations %>% select(Location, Sublocation, loc_id)) %>% 
+      mutate(name = if_else(is.na(Sublocation), Location, paste0(Sublocation, ", ", Location))) %>%
+      ungroup() %>% 
+      select(name, cases, new_cases_ma, date)
+  } else {
+    us_cases_with_geo() %>% 
+      filter(
+        us_level == "State", 
+        cases > input$curve_flattening_min_cases, 
+        ! is.na(new_cases_ma)
+      ) %>% 
+      data.frame() %>% 
+      select(name=state, cases, new_cases_ma, date)
+  }
+})
+```
+
+### Curve Flattening (# of cases vs. 5-day moving average new cases/day)
+
+```{r curve_flattening,context="server"}
+output$curve_flattening <- renderHighchart(
+  highchart() %>%
+    hc_xAxis(title=list(text="Cases"), type="logarithmic") %>%
+    hc_yAxis(title=list(text="New Cases"), type="logarithmic", min=1) %>% 
+    hc_add_series(
+      type="line",
+      marker=list(enabled=F),
+      data=curve_flattening_data(), 
+      mapping=hcaes(x=cases, y=new_cases_ma, group=name),
+      tooltip=list(
+        shared=T, 
+        pointFormat="{point.date}  Cases: {point.cases}  New Cases MA: {point.new_cases_ma}"
+        )
+    ) 
+)
+```
+
+```{r curve_flattening_output}
+highchartOutput("curve_flattening")
 ```

@@ -8,6 +8,11 @@ runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
+# TODO: Mapping
+#      - Make a frame containing country maps
+#      - Add regional maps for Australia, Canada, and China
+#      - Split the world_jh into one set that can link onto the regional maps, display that as polygons
+#      - Continue to display the non-matching world_jh as circles
 # TODO: Add view of proportion of tests that are positive to the US view
 # TODO: add deselect all to us testing page
 # TODO: Animate the bar charts next to the maps
@@ -80,6 +85,49 @@ get_new_data_json <- function(tag, url, f) {
 }
 ```
 
+```{r assemble_country_geometries,context="data",eval=F}
+# Not run in shiny - contains code used to create the country geometry set
+library(rnaturalearth)
+library(ozmaps)
+
+chn <- st_read("./Shapes/chn_admbnda_adm1_ocha.shp") %>% 
+  group_by(ADM1_EN) %>%
+  summarize() %>%
+  mutate(
+    ADM1_EN = str_replace(ADM1_EN, " Province", ""), 
+    ADM1_EN = str_replace(ADM1_EN, " Municipality", ""),
+    Location = "China"
+  ) %>%
+  select(Location, Sublocation = ADM1_EN, geometry)
+
+can <- st_read("./Shapes/Canada_AL263.shp") %>% 
+  mutate(
+    Location="Canada", 
+    Sublocation=locname
+  ) %>%
+  select(Location, Sublocation, geometry) %>%
+  st_transform(crs=st_crs(chn))
+
+data("ozmap_states")
+
+aus <- ozmap_states %>%
+  rename(Sublocation=NAME) %>%
+  mutate(Location="Australia") %>% 
+  st_transform(crs=st_crs(chn))
+
+sub_countries <- rbind(aus, can, chn) %>%
+  mutate(pop_est = NA)
+
+countries_to_load <- locations %>% filter(us_level == "Country") %>% 
+  group_by(Location) %>% summarize() %>% use_series(Location)
+
+country_geoms <- ne_countries(scale="small", country=countries_to_load, returnclass="sf") %>%
+  select(Location=admin, pop_est, geometry) %>%
+  mutate(Sublocation=NA)
+
+region_geometries <- rbind(sub_countries, country_geoms)
+save(region_geometries, file="./region_geometries.Rda")
+```
 
 ```{r include=F,context="server-start",cache=F}
 counties <- USAboundaries::us_counties()
@@ -224,6 +272,20 @@ world_cases_jh <- reactive({
       growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate)
   ) 
 })
+```
+
+```{r data_non_us_geometries,context="server-start",include=F}
+load("./region_geometries.Rda")
+
+world_geoms <- region_geometries %>% 
+    inner_join(
+      locations %>% 
+        filter(us_level == "Country") %>% 
+        select(loc_id, Location, Sublocation)
+      ) %>%
+  mutate(
+    bbox = map(geometry, ~st_bbox(.))
+  )
 ```
 
 ```{r data_nytimes,context="server-start",include=F}
@@ -407,7 +469,7 @@ Row
 -----------------------------------------------------------------------
 ### World Map
 
-```{r worldmap,context="server",include=F}
+```{r worldmap_data,context="server",include=F}
 world_cases <- reactive({
   req(input$worlddate)
   
@@ -417,7 +479,7 @@ world_cases <- reactive({
   todisplay %>% 
     inner_join(locations) %>%
     ungroup() %>% 
-    select(confirmed, dead, lat, lng, Sublocation, Subsublocation, Location) %>% 
+    select(confirmed, dead, lat, lng, Sublocation, Subsublocation, Location, loc_id) %>% 
     mutate(
       popup=paste0('<font color="blue">', 
                    case_when(
@@ -432,24 +494,67 @@ world_cases <- reactive({
     ) 
 })
 
+world_polygons <- reactive({
+  world_geoms %>% 
+    select(-Location, -Sublocation) %>% 
+    inner_join(world_cases())
+})
+
+world_circles <- reactive({
+  locs_to_exclude <- world_polygons() %>% use_series(loc_id) 
+  
+  isolate(world_cases()) %>% 
+    filter(! loc_id %in% locs_to_exclude)
+})
+```
+
+
+```{r worldmap,context="server",include=F}
 output$worldview <- renderLeaflet({
   leaflet(
     options=leafletOptions(minZoom=2)
   ) %>% 
-    addProviderTiles(providers$CartoDB.Positron)
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addLayersControl(overlayGroups=c("Confirmed", "Deaths", "Growth Rate"))
 })
 
 sizer <- 2000
 
-observeEvent(world_cases(), {
-  leafletProxy("worldview", data=world_cases(), deferUntilFlush=T) %>%
-    clearShapes() %>% 
-    addCircles(group="Confirmed", weight=0, opacity=0, fillOpacity = 0.3, 
-               color="Blue", radius = ~(sqrt(confirmed) * sizer),
-               label=~popup) %>% 
-    addCircles(group="Deaths", weight=0, opacity=0, fillOpacity = 0.3, 
-               color="red", radius= ~(sqrt(dead) * sizer)) %>%
-    addLayersControl(overlayGroups=c("Confirmed", "Deaths"))
+observe(label="update_world_map", {
+  polys <- world_polygons()
+  circles <- world_circles()
+  
+  cases_pal <- colorNumeric("Oranges", domain=log10(c(1, max(polys$confirmed))))
+  deaths_pal <- colorNumeric("Reds", domain=log10(c(1, max(polys$dead))))
+  growth_rate_ma_pal <- colorNumeric("Blues", domain=log10(c(min(polys$growth_rate_ma), max(polys$growth_rate_ma))))
+    
+  leafletProxy(data=polys, "worldview", deferUntilFlush=T) %>%
+    clearShapes() %>% clearMarkers() %>% 
+    addPolygons(
+      group="Confirmed", 
+      fillColor = ~cases_pal(log10(confirmed)),
+      fillOpacity = .7,
+      label=~popup
+    ) %>%
+    addPolygons(
+      group="Deaths", 
+      fillColor = ~cases_pal(log10(dead)),
+      fillOpacity = 0.7,
+      label=~popup
+    ) %>%
+    addPolygons(
+      group="Growth Rate", 
+      fillColor = ~ growth_rate_ma_pal(log10(growth_rate_ma)),
+      fillOpacity = 0.7,
+      label=~popup
+    ) %>%
+    addCircles(group="Confirmed", 
+               data=circles, 
+               weight=0, opacity=0, fillOpacity = 0.3, 
+               color="Blue", 
+               radius = ~(sqrt(confirmed) * sizer),
+               label=~popup)
+    
 })
 ```
 ```{r worldmap_output}
@@ -467,8 +572,15 @@ world_click_state <- reactive(label="worldmapclick", {
     
     target <- st_point(x=c(lng, lat), dim=c("XY"))
     
+    poly_match <- world_geoms %>%
+      filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
+      filter(st_within(target, geometry, sparse=F, prepared=F)) 
+    
+    if (nrow(poly_match) == 1) return(poly_match)
+
     out <- locations %>% filter(
       is.na(Subsublocation), 
+      ! loc_id %in% world_geoms$loc_id, 
       Location != "US" | is.na(Sublocation)
     ) %>%
       mutate(
@@ -647,7 +759,7 @@ output$usinputs <- renderUI({
 })
 ```
 
-```{r usinputoutput}
+```{r usinput_output}
 uiOutput("usinputs")
 ```
 

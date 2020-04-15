@@ -13,48 +13,18 @@ dash_data/
 
 rsconnect/documents/dash.Rmd/shinyapps.io/amose/COVID-19.dcf
 
-gadm36_CAN_1_sp.rds
+*.dbf
 
-Shapes/Australia_Polygon.dbf
+*.prj
 
-Shapes/Australia_Polygon.prj
+*.shp
 
-Shapes/Australia_Polygon.shp
+*.shx
 
-Shapes/Australia_Polygon.shx
+*.cpg
 
-Shapes/Canada_AL263.dbf
+*.sbn
 
-Shapes/Canada_AL263.prj
+*.sbx
 
-Shapes/Canada_AL263.shp
-
-Shapes/Canada_AL263.shx
-
-Shapes/canada.dbf
-
-Shapes/canada.prj
-
-Shapes/canada.shp
-
-Shapes/canada.shx
-
-Shapes/chn_admbnda_adm1_ocha.cpg
-
-Shapes/chn_admbnda_adm1_ocha.dbf
-
-Shapes/chn_admbnda_adm1_ocha.prj
-
-Shapes/chn_admbnda_adm1_ocha.sbn
-
-Shapes/chn_admbnda_adm1_ocha.sbx
-
-Shapes/chn_admbnda_adm1_ocha.shp
-
-Shapes/chn_admbnda_adm1_ocha.shp.xml
-
-Shapes/chn_admbnda_adm1_ocha.shx
-
-Shapes/gadm36_AUS_1_sf.rds
-
-Shapes/gadm36_CAN_1_sf.rds
+*.xml

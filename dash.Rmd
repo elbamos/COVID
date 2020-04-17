@@ -97,22 +97,22 @@ chn <- st_read("./Shapes/chn_admbnda_adm1_ocha.shp") %>%
   ) %>%
   select(Location, Sublocation = ADM1_EN, geometry)
 
-# can <- st_read("./Shapes/Canada_AL263.shp") %>% 
-#   mutate(
-#     Location="Canada", 
-#     Sublocation=locname
-#   ) %>%
-#   select(Location, Sublocation, geometry) %>%
-#   st_transform(crs=st_crs(chn))
-# 
-# data("ozmap_states")
-# 
-# aus <- ozmap_states %>%
-#   rename(Sublocation=NAME) %>%
-#   mutate(Location="Australia") %>% 
-#   st_transform(crs=st_crs(chn))
+can <- st_read("./Shapes/Canada_AL263.shp") %>%
+  mutate(
+    Location="Canada",
+    Sublocation=locname
+  ) %>%
+  select(Location, Sublocation, geometry) %>%
+  st_transform(crs=st_crs(chn))
 
-sub_countries <- chn %>% # rbind(aus, can, chn) %>%
+data("ozmap_states")
+
+aus <- ozmap_states %>%
+  rename(Sublocation=NAME) %>%
+  mutate(Location="Australia") %>%
+  st_transform(crs=st_crs(chn))
+
+sub_countries <- rbind(aus, can, chn) %>%
   mutate(pop_est = NA)
 
 countries_to_load <- locations %>% filter(us_level == "Country") %>% 

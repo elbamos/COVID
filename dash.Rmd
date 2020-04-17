@@ -572,7 +572,7 @@ world_vis_options <- reactive({
     select(confirmed, dead, recovered, growth_rate, new_cases_ma, growth_rate_ma, active_case_growth_rate_ma) %>% 
     gather(key="key", value="val") %>%
     filter(!is.na(val), !is.infinite(val), !is.nan(val),
-           val > 0 | ! key %in% c("confirmed", "growth_rate_ma", "new_cases_ma")) %>%
+           if_else(key %in% c("confirmed", "growth_rate_ma", "new_cases_ma"), val > 0, TRUE)) %>%
     group_by(key) %>% 
     summarize(
       min=min(val), 
@@ -591,7 +591,7 @@ world_vis_options <- reactive({
       pal = quote(log10(100 * growth_rate_ma)), 
       legend_bins = 5, 
       legend_vals = log10(100 * c(.01, 1.5)), 
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " %")
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " % / day")
     ),
     "Cases" = list(
       pallete = "inferno", 
@@ -609,10 +609,10 @@ world_vis_options <- reactive({
     ), 
     "Active Case Growth Rate Moving Average" = list(
       pallete = "Spectral", 
-      pal = quote(active_case_growth_rate_ma), 
+      pal = quote(-active_case_growth_rate_ma), 
       legend_bins=5, 
-      legend_vals=ranges[["active_case_growth_rate_ma"]], 
-      legend_trans = labelFormat(transform=round)
+      legend_vals=-c(-.2, .3), 
+      legend_trans = labelFormat(transform=function(x) round(-x * 100), suffix = " % / day" )
     )
   )
 })
@@ -629,6 +629,25 @@ output$worldview <- renderLeaflet({
 })
 
 sizer <- 2000
+
+adjustWorldMapLegend <- function(map, groups) {
+  selection <- groups[1]
+
+  vis_parts <- isolate(world_vis_options())[[selection]]
+  req(vis_parts)
+
+  pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
+  
+  map %>% 
+     addLegend(title=selection, 
+          pal=pallete, 
+          group=selection,
+          values=vis_parts$legend_vals,
+          bins=vis_parts$legend_bins,
+          labFormat=vis_parts$legend_trans, 
+          position="bottomleft"
+     )
+}
 
 observe(label="update_world_map", {
   polys <- world_polygons() %>% glimpse()
@@ -663,7 +682,22 @@ observe(label="update_world_map", {
                color="Blue", 
                radius = ~(sqrt(confirmed) * sizer),
                label=~popup)
-    
+  
+  groups <- isolate(input$worldview_groups) 
+  if (! is.null(groups)) {
+    map %>% clearControls() 
+    adjustWorldMapLegend(map, groups)
+  }
+})
+
+observeEvent(input$worldview_groups, 
+             label="handle_worldmap_legend", {
+  map <- leafletProxy('worldview') %>% 
+    clearControls() 
+  
+  selection <- isolate(input$worldview_groups)
+  
+  adjustWorldMapLegend(map, selection)
 })
 ```
 ```{r worldmap_output}

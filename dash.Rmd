@@ -300,7 +300,11 @@ world_cases_jh <- reactive({
       new_confirmed = confirmed - lag(confirmed, 1, default=0),
       new_cases_ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed),
       growth_rate = new_confirmed / dplyr::lag(confirmed, 1), 
-      growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate)
+      growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
+      active_case_count = confirmed - (recovered + dead), 
+      active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
+      active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
+      active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate)
   ) 
 })
 ```
@@ -521,8 +525,11 @@ world_cases <- reactive({
     ungroup() %>% 
     select(
       lat, lng, Sublocation, Subsublocation, Location, loc_id,
-      confirmed, dead, new_dead, new_confirmed, new_cases_ma, 
-      growth_rate, growth_rate_ma) %>% 
+      confirmed, dead, 
+      new_dead, new_confirmed, new_cases_ma, recovered, 
+      growth_rate, growth_rate_ma,
+      active_case_count, active_case_growth, active_case_growth_rate, active_case_growth_rate_ma
+      ) %>% 
     mutate(
       popup=paste0('<font color="blue">', 
                    case_when(
@@ -531,8 +538,15 @@ world_cases <- reactive({
                      TRUE ~ Location
                    ),
                    "</font><br/>", 
-                   "Confirmed: ", confirmed, 
-                   "<br/>Deaths: ", dead),
+                   "Active: ", active_case_count,
+                   "<br/>Confirmed: ", confirmed, 
+                   "<br/>Deaths: ", dead,
+                   "<br/>Recovered: ", recovered, 
+                   "<hr/>", 
+                   "New Cases/Day Moving Average: ", round(new_cases_ma), 
+                   "<br/>Case Growth Rate Moving Average: ", round(growth_rate_ma * 100), "% change in newly diagnosed cases per day",
+                   "<br/>Active Case Growth Rate Moving Average: ", round(active_case_growth_rate_ma * 100), "% change in active cases per day"
+      ),
       popup=map(popup, HTML)
     ) 
 })
@@ -555,10 +569,10 @@ world_circles <- reactive({
 world_vis_options <- reactive({
   minmax <- world_cases_jh() %>%
     ungroup() %>%
-    select(confirmed, dead, recovered, growth_rate, new_cases_ma, growth_rate_ma) %>% 
+    select(confirmed, dead, recovered, growth_rate, new_cases_ma, growth_rate_ma, active_case_growth_rate_ma) %>% 
     gather(key="key", value="val") %>%
     filter(!is.na(val), !is.infinite(val), !is.nan(val),
-           val > 0) %>%
+           val > 0 | ! key %in% c("confirmed", "growth_rate_ma", "new_cases_ma")) %>%
     group_by(key) %>% 
     summarize(
       min=min(val), 
@@ -577,21 +591,28 @@ world_vis_options <- reactive({
       pal = quote(log10(100 * growth_rate_ma)), 
       legend_bins = 5, 
       legend_vals = log10(100 * c(.01, 1.5)), 
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " % daily growth")
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " %")
     ),
     "Cases" = list(
       pallete = "inferno", 
       pal = quote(log10(confirmed)),
       legend_bins = 5,
       legend_vals = log10(ranges[["confirmed"]]),
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " / 100,000 ppl")
     ),
     "New Cases Moving Average" = list(
       pallete = "Blues", 
       pal = quote(log10(new_cases_ma)), 
       legend_bins=5, 
       legend_vals=log10(ranges[["new_cases_ma"]]), 
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " new cases per day")
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " new cases per day")
+    ), 
+    "Active Case Growth Rate Moving Average" = list(
+      pallete = "Spectral", 
+      pal = quote(active_case_growth_rate_ma), 
+      legend_bins=5, 
+      legend_vals=ranges[["active_case_growth_rate_ma"]], 
+      legend_trans = labelFormat(transform=round)
     )
   )
 })
@@ -599,11 +620,12 @@ world_vis_options <- reactive({
 
 ```{r worldmap,context="server",include=F}
 output$worldview <- renderLeaflet({
+  req(world_vis_options)
   leaflet(
     options=leafletOptions(minZoom=2)
   ) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
-    addLayersControl(baseGroups=c("Cases", "Growth Rate Moving Average", "New Cases Moving Average"))
+    addLayersControl(baseGroups=names(isolate(world_vis_options())))
 })
 
 sizer <- 2000

@@ -960,7 +960,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
       "Density: ", round(pop_density, 4), " ppl/sqmi<br/>",
       "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>",
       "<hr>",
-      "Active Cases: ", active_case_count, "<br/>",
+      if_else(is.na(county), paste0("Active Cases: ", active_case_count, "<br/>"), ""),
       "Confirmed Cases: ", cases, "<br/>", 
       "Infection Rate: ", rate, " / 100,000 ppl<br/>",
       "Penetrance: ", round(penetrance, 3), " cases / household<br/>",
@@ -970,17 +970,17 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
                 "<hr>",
                 "Hospitalized: ", hospitalized, "<br/>",
                 if_else(icu > 0, paste0("ICU: ", icu, "<br/>"), " "),
-                if_else(vent > 0, paste0("Ventilator: ", vent, "<br/>"), " ")
+                if_else(vent > 0, paste0("Ventilator: ", vent, "<br/>"), " "),
+                "Recovered: ", recovered, "<br/>"
               )
               , " "),
-      "Recovered: ", recovered, "<br/>",
       "<hr>",
       "New Cases: ", new_cases, "<br/>",
       "Growth: ", round(growth_rate, 3), " d/d<br/>",
       "Change in Growth: ", round(delta_growth_rate, 3), "<br/>",
       "5-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
       "5-Day Trailing Average Growth / Day: ", round(growth_rate_ma * 100, 1), "%<br/>",
-      "5-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"
+      if_else(is.na(county), paste0("5-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
     ),
     label = map(label, HTML)
   )

@@ -8,6 +8,8 @@ runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
+# TODO: Mapping
+#      - Countries to fix:  US, Australia, Canada, Greenland, Ivory Coast, Democratic Republic of Congo, Tanzania, Yemen, Burma, South Korea, Taiwan, Czech Republic, Serbia, North Macedonia, certain Chinese provines 
 # TODO: Add view of proportion of tests that are positive to the US view
 # TODO: add deselect all to us testing page
 # TODO: Animate the bar charts next to the maps
@@ -80,8 +82,85 @@ get_new_data_json <- function(tag, url, f) {
 }
 ```
 
+```{r assemble_country_geometries,context="data",eval=F}
+# Not run in shiny - contains code used to create the country geometry set
+library(rnaturalearth)
+library(ozmaps)
 
-```{r include=F,context="server-start",cache=F}
+chn <- st_read("./Shapes/chn_admbnda_adm1_ocha.shp") %>% 
+  group_by(ADM1_EN) %>%
+  summarize() %>%
+  mutate(
+    ADM1_EN = str_replace(ADM1_EN, " Province", ""), 
+    ADM1_EN = str_replace(ADM1_EN, " Municipality", ""),
+    Location = "China"
+  ) %>%
+  select(Location, Sublocation = ADM1_EN, geometry) %>%
+  mutate(
+    Sublocation = str_replace(Sublocation, " Autonomous Region", ""), 
+    Sublocation = str_replace(Sublocation, " Special Administrative Region", ""),
+    Sublocation = case_when(
+      Sublocation == "Xinjiang Uygur" ~ "Xinjiang",
+      Sublocation == "Guangxi Zhuang" ~ "Guangxi",
+      Sublocation == "Ningxia Hui" ~ "Ningxia",
+      TRUE ~ Sublocation
+    )
+  )
+
+can <- st_read("./Shapes/Canada_AL263.shp") %>%
+  mutate(
+    Location="Canada",
+    Sublocation=as.character(locname),
+    Sublocation = if_else(Sublocation == "Québec", "Quebec", Sublocation)
+  ) %>% 
+  select(Location, Sublocation, geometry) %>%
+  st_transform(crs=st_crs(chn))
+
+data("ozmap_states")
+
+aus <- ozmap_states %>%
+  rename(Sublocation=NAME) %>%
+  mutate(Location="Australia") %>%
+  st_transform(crs=st_crs(chn))
+
+sub_countries <- rbind(aus, can, chn) %>%
+  mutate(pop_est = NA)
+
+countries_to_load <- locations %>% filter(us_level == "Country") %>% 
+  group_by(Location) %>% summarize() %>% use_series(Location) %>%
+  c("Greenland", "Ivory Coast", "Czech Republic", "United States of America", "Yemen", 
+    "Democratic Republic of the Congo", "Myanmar", "South Korea", "Taiwan", 
+    "Republic of Serbia", "Macedonia", "United Republic of Tanzania")
+
+country_geoms <- ne_countries(scale="small", country=countries_to_load, returnclass="sf") %>%
+  select(Location=admin, pop_est, geometry) %>%
+  mutate(
+    Sublocation = case_when(
+      Location == "Greenland" ~ "Greenland",
+      TRUE ~ NA_character_
+    ), 
+    Location = case_when(
+      Location == "Greenland" ~ "Denmark", 
+      Location == "Ivory Coast" ~ "Cote d'Ivoire",
+      Location == "Czech Republic" ~ "Czechia", 
+      Location == "United States of America" ~ "US", 
+      Location == "Myanmar" ~ "Burma",
+      Location == "South Korea" ~ "Korea, South",
+      Location == "Taiwan" ~ "Taiwan*",
+      Location == "Republic of Serbia" ~ "Serbia", 
+      Location == "Macedonia" ~ "North Macedonia",
+      Location == "United Republic of Tanzania" ~ "Tanzania",
+      TRUE ~ Location
+    )
+  )
+
+#Countries to fix:  Quebec, Inner Mongolia, Ningxia, Xinjiang, Tibet, Hong Kong
+
+region_geometries <- rbind(sub_countries, country_geoms)
+save(region_geometries, file="./region_geometries.Rda")
+```
+
+```{r geometries,include=F,context="server-start",cache=T}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
 
@@ -164,7 +243,7 @@ locations <- confirmed[, 1:4] %>%
       ) %>% select(Location, Sublocation, Subsublocation, us_level, lat, lng)
   ) %>%
   mutate(loc_id = 1:n()) %>%
-  select(Location, Sublocation, Subsublocation, lat, lng, us_level, loc_id)
+  select(Location, Sublocation, Subsublocation, lat, lng, us_level, loc_id) 
 
 geometries %<>%
   left_join(locations %>% 
@@ -221,9 +300,27 @@ world_cases_jh <- reactive({
       new_confirmed = confirmed - lag(confirmed, 1, default=0),
       new_cases_ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed),
       growth_rate = new_confirmed / dplyr::lag(confirmed, 1), 
-      growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate)
+      growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
+      active_case_count = confirmed - (recovered + dead), 
+      active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
+      active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
+      active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate)
   ) 
 })
+```
+
+```{r data_non_us_geometries,context="server-start",include=F}
+load("./region_geometries.Rda")
+
+world_geoms <- region_geometries %>% 
+    inner_join(
+      locations %>% 
+        filter(us_level == "Country") %>% 
+        select(loc_id, Location, Sublocation)
+      ) %>%
+  mutate(
+    bbox = map(geometry, ~st_bbox(.))
+  )
 ```
 
 ```{r data_nytimes,context="server-start",include=F}
@@ -357,7 +454,16 @@ census_data <- get_acs(geography = "county", year = 2015,
 save(census_data, file="census_data.Rda")
 ```
 
+```{r phony_inputs,eval=F}
+# This is used during testing so that reactive expressions that depend on input can function
 
+input <- list(
+  worlddate = Sys.Date() - 1, 
+  usdate = Sys.Date() - 1, 
+  worldscale = "linear", 
+  worldmincases = 1
+)
+```
 
 World Overview
 =======================================================================
@@ -407,17 +513,23 @@ Row
 -----------------------------------------------------------------------
 ### World Map
 
-```{r worldmap,context="server",include=F}
+```{r worldmap_data,context="server",include=F}
 world_cases <- reactive({
   req(input$worlddate)
   
   todisplay <- world_cases_jh() %>% 
     dplyr::filter(date == input$worlddate)
-  
+
   todisplay %>% 
     inner_join(locations) %>%
     ungroup() %>% 
-    select(confirmed, dead, lat, lng, Sublocation, Subsublocation, Location) %>% 
+    select(
+      lat, lng, Sublocation, Subsublocation, Location, loc_id,
+      confirmed, dead, 
+      new_dead, new_confirmed, new_cases_ma, recovered, 
+      growth_rate, growth_rate_ma,
+      active_case_count, active_case_growth, active_case_growth_rate, active_case_growth_rate_ma
+      ) %>% 
     mutate(
       popup=paste0('<font color="blue">', 
                    case_when(
@@ -426,30 +538,166 @@ world_cases <- reactive({
                      TRUE ~ Location
                    ),
                    "</font><br/>", 
-                   "Confirmed: ", confirmed, 
-                   "<br/>Deaths: ", dead),
+                   "Active: ", active_case_count,
+                   "<br/>Confirmed: ", confirmed, 
+                   "<br/>Deaths: ", dead,
+                   "<br/>Recovered: ", recovered, 
+                   "<hr/>", 
+                   "New Cases/Day Moving Average: ", round(new_cases_ma), 
+                   "<br/>Case Growth Rate Moving Average: ", round(growth_rate_ma * 100), "% change in newly diagnosed cases per day",
+                   "<br/>Active Case Growth Rate Moving Average: ", round(active_case_growth_rate_ma * 100), "% change in active cases per day"
+      ),
       popup=map(popup, HTML)
     ) 
 })
 
+world_polygons <- reactive({
+  world_geoms %>% 
+    select(-Location, -Sublocation) %>% 
+    inner_join(world_cases())
+})
+
+world_circles <- reactive({
+  locs_to_exclude <- world_polygons() %>% use_series(loc_id) 
+  
+  isolate(world_cases()) %>% 
+    filter(! loc_id %in% locs_to_exclude)
+})
+```
+
+```{r world_vis_elements,context="server",include=F}
+world_vis_options <- reactive({
+  minmax <- world_cases_jh() %>%
+    ungroup() %>%
+    select(confirmed, dead, recovered, growth_rate, new_cases_ma, growth_rate_ma, active_case_growth_rate_ma) %>% 
+    gather(key="key", value="val") %>%
+    filter(!is.na(val), !is.infinite(val), !is.nan(val),
+           if_else(key %in% c("confirmed", "growth_rate_ma", "new_cases_ma"), val > 0, TRUE)) %>%
+    group_by(key) %>% 
+    summarize(
+      min=min(val), 
+      max=max(val)
+    ) %>%
+    mutate(
+      rng = map2(min, max, ~c(.x, .y))
+    )
+  
+  ranges <- minmax$rng
+  names(ranges) <- minmax$key
+
+  list(
+    "Growth Rate Moving Average" = list(
+      pallete = "Oranges", 
+      pal = quote(log10(100 * growth_rate_ma)), 
+      legend_bins = 5, 
+      legend_vals = log10(100 * c(.01, 1.5)), 
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " % / day")
+    ),
+    "Cases" = list(
+      pallete = "inferno", 
+      pal = quote(log10(confirmed)),
+      legend_bins = 5,
+      legend_vals = log10(ranges[["confirmed"]]),
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " / 100,000 ppl")
+    ),
+    "New Cases Moving Average" = list(
+      pallete = "Blues", 
+      pal = quote(log10(new_cases_ma)), 
+      legend_bins=5, 
+      legend_vals=log10(ranges[["new_cases_ma"]]), 
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " new cases per day")
+    ), 
+    "Active Case Growth Rate Moving Average" = list(
+      pallete = "Spectral", 
+      pal = quote(-active_case_growth_rate_ma), 
+      legend_bins=5, 
+      legend_vals=-c(-.2, .3), 
+      legend_trans = labelFormat(transform=function(x) round(-x * 100), suffix = " % / day" )
+    )
+  )
+})
+```
+
+```{r worldmap,context="server",include=F}
 output$worldview <- renderLeaflet({
+  req(world_vis_options)
   leaflet(
     options=leafletOptions(minZoom=2)
   ) %>% 
-    addProviderTiles(providers$CartoDB.Positron)
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addLayersControl(baseGroups=names(isolate(world_vis_options())))
 })
 
 sizer <- 2000
 
-observeEvent(world_cases(), {
-  leafletProxy("worldview", data=world_cases(), deferUntilFlush=T) %>%
-    clearShapes() %>% 
-    addCircles(group="Confirmed", weight=0, opacity=0, fillOpacity = 0.3, 
-               color="Blue", radius = ~(sqrt(confirmed) * sizer),
-               label=~popup) %>% 
-    addCircles(group="Deaths", weight=0, opacity=0, fillOpacity = 0.3, 
-               color="red", radius= ~(sqrt(dead) * sizer)) %>%
-    addLayersControl(overlayGroups=c("Confirmed", "Deaths"))
+adjustWorldMapLegend <- function(map, groups) {
+  selection <- groups[1]
+
+  vis_parts <- isolate(world_vis_options())[[selection]]
+  req(vis_parts)
+
+  pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
+  
+  map %>% 
+     addLegend(title=selection, 
+          pal=pallete, 
+          group=selection,
+          values=vis_parts$legend_vals,
+          bins=vis_parts$legend_bins,
+          labFormat=vis_parts$legend_trans, 
+          position="bottomleft"
+     )
+}
+
+observe(label="update_world_map", {
+  polys <- world_polygons() %>% glimpse()
+  circles <- world_circles() %>% glimpse()
+  vis_options <- world_vis_options()
+    
+  map <- leafletProxy(data=polys, "worldview", deferUntilFlush=T) %>%
+    clearShapes() %>% clearMarkers() 
+  
+  for (selection in names(vis_options)) {
+    vis_parts <- vis_options[[selection]]
+    
+    pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
+    
+    map %<>% addPolygons(
+      opacity = 0.7,
+      group = selection,
+      weight = .1,
+      fillColor = ~ pallete(eval(vis_parts$pal)),
+      fillOpacity = 0.7,
+      label = ~popup,
+      highlight = highlightOptions(
+        weight=5, fillOpacity=1.0, bringToFront = TRUE
+      )
+   ) 
+  }
+  
+  map %>%
+    addCircles(group="Confirmed", 
+               data=circles, 
+               weight=0, opacity=0, fillOpacity = 0.3, 
+               color="Blue", 
+               radius = ~(sqrt(confirmed) * sizer),
+               label=~popup)
+  
+  groups <- isolate(input$worldview_groups) 
+  if (! is.null(groups)) {
+    map %>% clearControls() 
+    adjustWorldMapLegend(map, groups)
+  }
+})
+
+observeEvent(input$worldview_groups, 
+             label="handle_worldmap_legend", {
+  map <- leafletProxy('worldview') %>% 
+    clearControls() 
+  
+  selection <- isolate(input$worldview_groups)
+  
+  adjustWorldMapLegend(map, selection)
 })
 ```
 ```{r worldmap_output}
@@ -467,8 +715,15 @@ world_click_state <- reactive(label="worldmapclick", {
     
     target <- st_point(x=c(lng, lat), dim=c("XY"))
     
+    poly_match <- world_geoms %>%
+      filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
+      filter(st_within(target, geometry, sparse=F, prepared=F)) 
+    
+    if (nrow(poly_match) == 1) return(poly_match)
+
     out <- locations %>% filter(
       is.na(Subsublocation), 
+      ! loc_id %in% world_geoms$loc_id, 
       Location != "US" | is.na(Sublocation)
     ) %>%
       mutate(
@@ -647,7 +902,7 @@ output$usinputs <- renderUI({
 })
 ```
 
-```{r usinputoutput}
+```{r usinput_output}
 uiOutput("usinputs")
 ```
 
@@ -693,6 +948,10 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
     delta_growth_rate = (growth_rate / lag(growth_rate, 1, default = 1)),
     new_cases_ma = rollmeanr(new_cases, k=5, fill=new_cases),
     growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
+    active_case_count = cases - (recovered + deaths), 
+    active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
+    active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
+    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate),
     
     label = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
@@ -701,6 +960,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
       "Density: ", round(pop_density, 4), " ppl/sqmi<br/>",
       "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>",
       "<hr>",
+      if_else(is.na(county), paste0("Active Cases: ", active_case_count, "<br/>"), ""),
       "Confirmed Cases: ", cases, "<br/>", 
       "Infection Rate: ", rate, " / 100,000 ppl<br/>",
       "Penetrance: ", round(penetrance, 3), " cases / household<br/>",
@@ -710,16 +970,17 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
                 "<hr>",
                 "Hospitalized: ", hospitalized, "<br/>",
                 if_else(icu > 0, paste0("ICU: ", icu, "<br/>"), " "),
-                if_else(vent > 0, paste0("Ventilator: ", vent, "<br/>"), " ")
+                if_else(vent > 0, paste0("Ventilator: ", vent, "<br/>"), " "),
+                "Recovered: ", recovered, "<br/>"
               )
               , " "),
-      "Recovered: ", recovered, "<br/>",
       "<hr>",
       "New Cases: ", new_cases, "<br/>",
       "Growth: ", round(growth_rate, 3), " d/d<br/>",
       "Change in Growth: ", round(delta_growth_rate, 3), "<br/>",
-      "5-Day Trailing Average New Cases / Day: ", round(new_cases_ma, 3), "<br/>", 
-      "5-Day Trailing Average Growth / Day: ", round(growth_rate_ma, 3), "<br/>"
+      "5-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
+      "5-Day Trailing Average Growth / Day: ", round(growth_rate_ma * 100, 1), "%<br/>",
+      if_else(is.na(county), paste0("5-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
     ),
     label = map(label, HTML)
   )
@@ -766,11 +1027,12 @@ vis_options <- reactive({
     select(pop, cases, deaths, negative, pending, hospitalized, icu, vent, recovered, 
            pop_density, housing_density, occupancy_density, rate, pos_rate, new_cases, 
            growth_rate, delta_growth_rate, penetrance, hosp_rate, icu_rate, vent_rate,
-           new_cases_ma, growth_rate_ma) %>% 
+           new_cases_ma, growth_rate_ma, active_case_count, active_case_growth_rate_ma) %>% 
     gather(key="key", value="val") %>%
     filter(!is.na(val), !is.infinite(val), !is.nan(val),
            val > 0 | ! key %in% c("pop_density", "housing_density", "rate", "cases", 
-                                  "new_cases_ma", "growth_rate_ma")) %>%
+                                  "new_cases_ma", "growth_rate_ma", 
+                                  "active_case_count")) %>%
     group_by(key) %>% 
     summarize(
       min=min(val), 
@@ -789,28 +1051,35 @@ vis_options <- reactive({
       pal = quote(log10(100 * growth_rate_ma)), 
       legend_bins = 5, 
       legend_vals = log10(100 * c(.01, 1.5)), 
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " % daily growth")
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " % daily growth")
     ),
     "Infection Rate" = list(
       pallete = "inferno", 
       pal = quote(log10(rate)),
       legend_bins = 5,
       legend_vals = log10(ranges[["rate"]]),
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " / 100,000 ppl")
     ),
     "New Cases Moving Average" = list(
       pallete = "Blues", 
       pal = quote(log10(new_cases_ma)), 
       legend_bins=5, 
       legend_vals=log10(ranges[["new_cases_ma"]]), 
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " new cases per day")
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " New Cases / day")
     ),
-    "Cases" = list(
+    "Confirmed Cases" = list(
       pallete = "Reds", 
       pal = quote(log10(cases)), 
       legend_bins=4, 
       legend_vals=log10(ranges[["cases"]]), 
       legend_trans = labelFormat(transform=function(x) 10^x)
+    ),
+    "Cases/Household" = list(
+      pallete = "plasma", 
+      pal = quote(penetrance),
+      legend_bins = 4,
+      legend_vals = ranges[['penetrance']],
+      legend_trans = labelFormat(transform=identity, suffix = " cases / household")
     ),
     "Pop Density" = list(
       pallete = "RdYlBu", 
@@ -832,25 +1101,25 @@ vis_options <- reactive({
       legend_bins = 4,
       legend_vals = log10(ranges[["occupancy_density"]]),
       legend_trans = labelFormat(suffix = "ppl / home")
-    ),
-    "Cases/Household" = list(
-      pallete = "plasma", 
-      pal = quote(penetrance),
-      legend_bins = 4,
-      legend_vals = ranges[['penetrance']],
-      legend_trans = labelFormat(transform=identity, suffix = " cases / household")
     )
   )
   
   if (isolate(input$usscale) == "State") {
     out <- c(out, list(
-             # "Hospitalization Rate" = list(
-             #   pallete = "Spectral", 
-             #   pal = quote(hosp_rate), 
-             #   legend_bins=6, 
-             #   lengend_vals = ranges[["hosp_rate"]], 
-             #   legend_trans = labelFormat(transform=identity, suffix=" Hospitalizations / Case")
-             # ), 
+            "Active Cases" = list(
+              pallete = "Reds",
+              pal = quote(log10(active_case_count)),
+              legend_bins=3,
+              legend_vals=log10(ranges[["active_case_count"]]),
+              legend_trans=labelFormat(transform=function(x) round(10^x))
+            ),
+            "Active Case Growth Rate Moving Average" = list(
+              pallete = "Spectral", 
+              pal = quote(-active_case_growth_rate_ma), 
+              legend_bins=4, 
+              legend_vals=-c(-.2, .3), 
+              legend_trans=labelFormat(transform=function(x) round(-x * 100, 1), suffix="% Change in Active Cases / Day")
+            ),
              "ICU Rate" = list(
                pallete = "YlGnBu", 
                pal = quote(icu_rate), 

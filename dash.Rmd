@@ -95,13 +95,24 @@ chn <- st_read("./Shapes/chn_admbnda_adm1_ocha.shp") %>%
     ADM1_EN = str_replace(ADM1_EN, " Municipality", ""),
     Location = "China"
   ) %>%
-  select(Location, Sublocation = ADM1_EN, geometry)
+  select(Location, Sublocation = ADM1_EN, geometry) %>%
+  mutate(
+    Sublocation = str_replace(Sublocation, " Autonomous Region", ""), 
+    Sublocation = str_replace(Sublocation, " Special Administrative Region", ""),
+    Sublocation = case_when(
+      Sublocation == "Xinjiang Uygur" ~ "Xinjiang",
+      Sublocation == "Guangxi Zhuang" ~ "Guangxi",
+      Sublocation == "Ningxia Hui" ~ "Ningxia",
+      TRUE ~ Sublocation
+    )
+  )
 
 can <- st_read("./Shapes/Canada_AL263.shp") %>%
   mutate(
     Location="Canada",
-    Sublocation=locname
-  ) %>%
+    Sublocation=as.character(locname),
+    Sublocation = if_else(Sublocation == "Québec", "Quebec", Sublocation)
+  ) %>% 
   select(Location, Sublocation, geometry) %>%
   st_transform(crs=st_crs(chn))
 
@@ -143,8 +154,7 @@ country_geoms <- ne_countries(scale="small", country=countries_to_load, returncl
     )
   )
 
-#Countries to fix:  Australia, Canada, Tanzania, Yemen, certain Chinese provines 
-# Cote d'Ivoire, Tanzania
+#Countries to fix:  Quebec, Inner Mongolia, Ningxia, Xinjiang, Tibet, Hong Kong
 
 region_geometries <- rbind(sub_countries, country_geoms)
 save(region_geometries, file="./region_geometries.Rda")

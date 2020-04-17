@@ -9,10 +9,7 @@ runtime: shiny_prerendered
 
 ```{r todods,include=F}
 # TODO: Mapping
-#      - Make a frame containing country maps
-#      - Add regional maps for Australia, Canada, and China
-#      - Split the world_jh into one set that can link onto the regional maps, display that as polygons
-#      - Continue to display the non-matching world_jh as circles
+#      - Countries to fix:  US, Australia, Canada, Greenland, Ivory Coast, Democratic Republic of Congo, Tanzania, Yemen, Burma, South Korea, Taiwan, Czech Republic, Serbia, North Macedonia, certain Chinese provines 
 # TODO: Add view of proportion of tests that are positive to the US view
 # TODO: add deselect all to us testing page
 # TODO: Animate the bar charts next to the maps
@@ -100,30 +97,54 @@ chn <- st_read("./Shapes/chn_admbnda_adm1_ocha.shp") %>%
   ) %>%
   select(Location, Sublocation = ADM1_EN, geometry)
 
-can <- st_read("./Shapes/Canada_AL263.shp") %>% 
-  mutate(
-    Location="Canada", 
-    Sublocation=locname
-  ) %>%
-  select(Location, Sublocation, geometry) %>%
-  st_transform(crs=st_crs(chn))
+# can <- st_read("./Shapes/Canada_AL263.shp") %>% 
+#   mutate(
+#     Location="Canada", 
+#     Sublocation=locname
+#   ) %>%
+#   select(Location, Sublocation, geometry) %>%
+#   st_transform(crs=st_crs(chn))
+# 
+# data("ozmap_states")
+# 
+# aus <- ozmap_states %>%
+#   rename(Sublocation=NAME) %>%
+#   mutate(Location="Australia") %>% 
+#   st_transform(crs=st_crs(chn))
 
-data("ozmap_states")
-
-aus <- ozmap_states %>%
-  rename(Sublocation=NAME) %>%
-  mutate(Location="Australia") %>% 
-  st_transform(crs=st_crs(chn))
-
-sub_countries <- rbind(aus, can, chn) %>%
+sub_countries <- chn %>% # rbind(aus, can, chn) %>%
   mutate(pop_est = NA)
 
 countries_to_load <- locations %>% filter(us_level == "Country") %>% 
-  group_by(Location) %>% summarize() %>% use_series(Location)
+  group_by(Location) %>% summarize() %>% use_series(Location) %>%
+  c("Greenland", "Ivory Coast", "Czech Republic", "United States of America", "Yemen", 
+    "Democratic Republic of the Congo", "Myanmar", "South Korea", "Taiwan", 
+    "Republic of Serbia", "Macedonia", "United Republic of Tanzania")
 
 country_geoms <- ne_countries(scale="small", country=countries_to_load, returnclass="sf") %>%
   select(Location=admin, pop_est, geometry) %>%
-  mutate(Sublocation=NA)
+  mutate(
+    Sublocation = case_when(
+      Location == "Greenland" ~ "Greenland",
+      TRUE ~ NA_character_
+    ), 
+    Location = case_when(
+      Location == "Greenland" ~ "Denmark", 
+      Location == "Ivory Coast" ~ "Cote d'Ivoire",
+      Location == "Czech Republic" ~ "Czechia", 
+      Location == "United States of America" ~ "US", 
+      Location == "Myanmar" ~ "Burma",
+      Location == "South Korea" ~ "Korea, South",
+      Location == "Taiwan" ~ "Taiwan*",
+      Location == "Republic of Serbia" ~ "Serbia", 
+      Location == "Macedonia" ~ "North Macedonia",
+      Location == "United Republic of Tanzania" ~ "Tanzania",
+      TRUE ~ Location
+    )
+  )
+
+#Countries to fix:  Australia, Canada, Tanzania, Yemen, certain Chinese provines 
+# Cote d'Ivoire, Tanzania
 
 region_geometries <- rbind(sub_countries, country_geoms)
 save(region_geometries, file="./region_geometries.Rda")
@@ -212,7 +233,7 @@ locations <- confirmed[, 1:4] %>%
       ) %>% select(Location, Sublocation, Subsublocation, us_level, lat, lng)
   ) %>%
   mutate(loc_id = 1:n()) %>%
-  select(Location, Sublocation, Subsublocation, lat, lng, us_level, loc_id)
+  select(Location, Sublocation, Subsublocation, lat, lng, us_level, loc_id) 
 
 geometries %<>%
   left_join(locations %>% 
@@ -419,7 +440,16 @@ census_data <- get_acs(geography = "county", year = 2015,
 save(census_data, file="census_data.Rda")
 ```
 
+```{r phony_inputs,eval=F}
+# This is used during testing so that reactive expressions that depend on input can function
 
+input <- list(
+  worlddate = Sys.Date() - 1, 
+  usdate = Sys.Date() - 1, 
+  worldscale = "linear", 
+  worldmincases = 1
+)
+```
 
 World Overview
 =======================================================================
@@ -475,11 +505,14 @@ world_cases <- reactive({
   
   todisplay <- world_cases_jh() %>% 
     dplyr::filter(date == input$worlddate)
-  
+
   todisplay %>% 
     inner_join(locations) %>%
     ungroup() %>% 
-    select(confirmed, dead, lat, lng, Sublocation, Subsublocation, Location, loc_id) %>% 
+    select(
+      lat, lng, Sublocation, Subsublocation, Location, loc_id,
+      confirmed, dead, new_dead, new_confirmed, new_cases_ma, 
+      growth_rate, growth_rate_ma) %>% 
     mutate(
       popup=paste0('<font color="blue">', 
                    case_when(
@@ -508,6 +541,51 @@ world_circles <- reactive({
 })
 ```
 
+```{r world_vis_elements,context="server",include=F}
+world_vis_options <- reactive({
+  minmax <- world_cases_jh() %>%
+    ungroup() %>%
+    select(confirmed, dead, recovered, growth_rate, new_cases_ma, growth_rate_ma) %>% 
+    gather(key="key", value="val") %>%
+    filter(!is.na(val), !is.infinite(val), !is.nan(val),
+           val > 0) %>%
+    group_by(key) %>% 
+    summarize(
+      min=min(val), 
+      max=max(val)
+    ) %>%
+    mutate(
+      rng = map2(min, max, ~c(.x, .y))
+    )
+  
+  ranges <- minmax$rng
+  names(ranges) <- minmax$key
+
+  list(
+    "Growth Rate Moving Average" = list(
+      pallete = "Oranges", 
+      pal = quote(log10(100 * growth_rate_ma)), 
+      legend_bins = 5, 
+      legend_vals = log10(100 * c(.01, 1.5)), 
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " % daily growth")
+    ),
+    "Cases" = list(
+      pallete = "inferno", 
+      pal = quote(log10(confirmed)),
+      legend_bins = 5,
+      legend_vals = log10(ranges[["confirmed"]]),
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
+    ),
+    "New Cases Moving Average" = list(
+      pallete = "Blues", 
+      pal = quote(log10(new_cases_ma)), 
+      legend_bins=5, 
+      legend_vals=log10(ranges[["new_cases_ma"]]), 
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " new cases per day")
+    )
+  )
+})
+```
 
 ```{r worldmap,context="server",include=F}
 output$worldview <- renderLeaflet({
@@ -515,39 +593,38 @@ output$worldview <- renderLeaflet({
     options=leafletOptions(minZoom=2)
   ) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
-    addLayersControl(overlayGroups=c("Confirmed", "Deaths", "Growth Rate"))
+    addLayersControl(baseGroups=c("Cases", "Growth Rate Moving Average", "New Cases Moving Average"))
 })
 
 sizer <- 2000
 
 observe(label="update_world_map", {
-  polys <- world_polygons()
-  circles <- world_circles()
-  
-  cases_pal <- colorNumeric("Oranges", domain=log10(c(1, max(polys$confirmed))))
-  deaths_pal <- colorNumeric("Reds", domain=log10(c(1, max(polys$dead))))
-  growth_rate_ma_pal <- colorNumeric("Blues", domain=log10(c(min(polys$growth_rate_ma), max(polys$growth_rate_ma))))
+  polys <- world_polygons() %>% glimpse()
+  circles <- world_circles() %>% glimpse()
+  vis_options <- world_vis_options()
     
-  leafletProxy(data=polys, "worldview", deferUntilFlush=T) %>%
-    clearShapes() %>% clearMarkers() %>% 
-    addPolygons(
-      group="Confirmed", 
-      fillColor = ~cases_pal(log10(confirmed)),
-      fillOpacity = .7,
-      label=~popup
-    ) %>%
-    addPolygons(
-      group="Deaths", 
-      fillColor = ~cases_pal(log10(dead)),
+  map <- leafletProxy(data=polys, "worldview", deferUntilFlush=T) %>%
+    clearShapes() %>% clearMarkers() 
+  
+  for (selection in names(vis_options)) {
+    vis_parts <- vis_options[[selection]]
+    
+    pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
+    
+    map %<>% addPolygons(
+      opacity = 0.7,
+      group = selection,
+      weight = .1,
+      fillColor = ~ pallete(eval(vis_parts$pal)),
       fillOpacity = 0.7,
-      label=~popup
-    ) %>%
-    addPolygons(
-      group="Growth Rate", 
-      fillColor = ~ growth_rate_ma_pal(log10(growth_rate_ma)),
-      fillOpacity = 0.7,
-      label=~popup
-    ) %>%
+      label = ~popup,
+      highlight = highlightOptions(
+        weight=5, fillOpacity=1.0, bringToFront = TRUE
+      )
+   ) 
+  }
+  
+  map %>%
     addCircles(group="Confirmed", 
                data=circles, 
                weight=0, opacity=0, fillOpacity = 0.3, 

@@ -160,7 +160,7 @@ region_geometries <- rbind(sub_countries, country_geoms)
 save(region_geometries, file="./region_geometries.Rda")
 ```
 
-```{r include=F,context="server-start",cache=F}
+```{r geometries,include=F,context="server-start",cache=T}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
 
@@ -948,6 +948,10 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
     delta_growth_rate = (growth_rate / lag(growth_rate, 1, default = 1)),
     new_cases_ma = rollmeanr(new_cases, k=5, fill=new_cases),
     growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
+    active_case_count = cases - (recovered + deaths), 
+    active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
+    active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
+    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate),
     
     label = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
@@ -956,6 +960,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
       "Density: ", round(pop_density, 4), " ppl/sqmi<br/>",
       "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>",
       "<hr>",
+      "Active Cases: ", active_case_count, "<br/>",
       "Confirmed Cases: ", cases, "<br/>", 
       "Infection Rate: ", rate, " / 100,000 ppl<br/>",
       "Penetrance: ", round(penetrance, 3), " cases / household<br/>",
@@ -973,8 +978,9 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
       "New Cases: ", new_cases, "<br/>",
       "Growth: ", round(growth_rate, 3), " d/d<br/>",
       "Change in Growth: ", round(delta_growth_rate, 3), "<br/>",
-      "5-Day Trailing Average New Cases / Day: ", round(new_cases_ma, 3), "<br/>", 
-      "5-Day Trailing Average Growth / Day: ", round(growth_rate_ma, 3), "<br/>"
+      "5-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
+      "5-Day Trailing Average Growth / Day: ", round(growth_rate_ma * 100, 1), "%<br/>",
+      "5-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"
     ),
     label = map(label, HTML)
   )
@@ -1021,11 +1027,12 @@ vis_options <- reactive({
     select(pop, cases, deaths, negative, pending, hospitalized, icu, vent, recovered, 
            pop_density, housing_density, occupancy_density, rate, pos_rate, new_cases, 
            growth_rate, delta_growth_rate, penetrance, hosp_rate, icu_rate, vent_rate,
-           new_cases_ma, growth_rate_ma) %>% 
+           new_cases_ma, growth_rate_ma, active_case_count, active_case_growth_rate_ma) %>% 
     gather(key="key", value="val") %>%
     filter(!is.na(val), !is.infinite(val), !is.nan(val),
            val > 0 | ! key %in% c("pop_density", "housing_density", "rate", "cases", 
-                                  "new_cases_ma", "growth_rate_ma")) %>%
+                                  "new_cases_ma", "growth_rate_ma", 
+                                  "active_case_count")) %>%
     group_by(key) %>% 
     summarize(
       min=min(val), 
@@ -1044,28 +1051,35 @@ vis_options <- reactive({
       pal = quote(log10(100 * growth_rate_ma)), 
       legend_bins = 5, 
       legend_vals = log10(100 * c(.01, 1.5)), 
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " % daily growth")
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " % daily growth")
     ),
     "Infection Rate" = list(
       pallete = "inferno", 
       pal = quote(log10(rate)),
       legend_bins = 5,
       legend_vals = log10(ranges[["rate"]]),
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " / 100,000 ppl")
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " / 100,000 ppl")
     ),
     "New Cases Moving Average" = list(
       pallete = "Blues", 
       pal = quote(log10(new_cases_ma)), 
       legend_bins=5, 
       legend_vals=log10(ranges[["new_cases_ma"]]), 
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " new cases per day")
+      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " New Cases / day")
     ),
-    "Cases" = list(
+    "Confirmed Cases" = list(
       pallete = "Reds", 
       pal = quote(log10(cases)), 
       legend_bins=4, 
       legend_vals=log10(ranges[["cases"]]), 
       legend_trans = labelFormat(transform=function(x) 10^x)
+    ),
+    "Cases/Household" = list(
+      pallete = "plasma", 
+      pal = quote(penetrance),
+      legend_bins = 4,
+      legend_vals = ranges[['penetrance']],
+      legend_trans = labelFormat(transform=identity, suffix = " cases / household")
     ),
     "Pop Density" = list(
       pallete = "RdYlBu", 
@@ -1087,25 +1101,25 @@ vis_options <- reactive({
       legend_bins = 4,
       legend_vals = log10(ranges[["occupancy_density"]]),
       legend_trans = labelFormat(suffix = "ppl / home")
-    ),
-    "Cases/Household" = list(
-      pallete = "plasma", 
-      pal = quote(penetrance),
-      legend_bins = 4,
-      legend_vals = ranges[['penetrance']],
-      legend_trans = labelFormat(transform=identity, suffix = " cases / household")
     )
   )
   
   if (isolate(input$usscale) == "State") {
     out <- c(out, list(
-             # "Hospitalization Rate" = list(
-             #   pallete = "Spectral", 
-             #   pal = quote(hosp_rate), 
-             #   legend_bins=6, 
-             #   lengend_vals = ranges[["hosp_rate"]], 
-             #   legend_trans = labelFormat(transform=identity, suffix=" Hospitalizations / Case")
-             # ), 
+            "Active Cases" = list(
+              pallete = "Reds",
+              pal = quote(log10(active_case_count)),
+              legend_bins=3,
+              legend_vals=log10(ranges[["active_case_count"]]),
+              legend_trans=labelFormat(transform=function(x) round(10^x))
+            ),
+            "Active Case Growth Rate Moving Average" = list(
+              pallete = "Spectral", 
+              pal = quote(-active_case_growth_rate_ma), 
+              legend_bins=4, 
+              legend_vals=-c(-.2, .3), 
+              legend_trans=labelFormat(transform=function(x) round(-x * 100, 1), suffix="% Change in Active Cases / Day")
+            ),
              "ICU Rate" = list(
                pallete = "YlGnBu", 
                pal = quote(icu_rate), 

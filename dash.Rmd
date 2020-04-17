@@ -81,7 +81,7 @@ get_new_data_json <- function(tag, url, f) {
 ```
 
 
-```{r global,include=F,context="data",cache=F}
+```{r include=F,context="server-start",cache=F}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
 

@@ -8,8 +8,6 @@ runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
-# TODO: Mapping
-#      - Countries to fix:  US, Australia, Canada, Greenland, Ivory Coast, Democratic Republic of Congo, Tanzania, Yemen, Burma, South Korea, Taiwan, Czech Republic, Serbia, North Macedonia, certain Chinese provines 
 # TODO: Add view of proportion of tests that are positive to the US view
 # TODO: add deselect all to us testing page
 # TODO: Animate the bar charts next to the maps
@@ -161,7 +159,7 @@ region_geometries <- rbind(sub_countries, country_geoms)
 save(region_geometries, file="./region_geometries.Rda")
 ```
 
-```{r geometries,include=F,context="server-start",cache=T}
+```{r geometries,include=F,context="server-start",cache=F}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
 
@@ -455,6 +453,28 @@ census_data <- get_acs(geography = "county", year = 2015,
 save(census_data, file="census_data.Rda")
 ```
 
+```{r palettes,context="data",cache=T}
+palletes <- list(
+  # Counts
+  confirmed = "Reds", 
+  cases = "Reds", 
+  active_case_count = "Oranges",
+  # Moving averages
+  new_cases_ma = "YlOrRd", 
+  growth_rate_ma = "YlOrBr", 
+  active_case_growth_rate_ma = "PiYG",
+  # Demographics
+  pop_density = "YlGn", 
+  housing_density = "PuOr",
+  occupancy_density = "BuPu",
+  # Rates
+  icu_rate = "magma", 
+  vent_rate = "viridis",
+  rate = "inferno", # infection_rate
+  penetrance = "plasma"
+)
+```
+
 ```{r phony_inputs,eval=F}
 # This is used during testing so that reactive expressions that depend on input can function
 
@@ -587,29 +607,29 @@ world_vis_options <- reactive({
   names(ranges) <- minmax$key
 
   list(
+    "New Cases Moving Average" = list(
+      pallete = palletes$new_cases_ma,
+      pal = quote(log10(new_cases_ma)), 
+      legend_bins=5, 
+      legend_vals=log10(ranges[["new_cases_ma"]]), 
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " new cases per day")
+    ), 
     "Growth Rate Moving Average" = list(
-      pallete = "Oranges", 
+      pallete = palletes$growth_rate_ma,
       pal = quote(log10(100 * growth_rate_ma)), 
       legend_bins = 5, 
       legend_vals = log10(100 * c(.01, 1.5)), 
       legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " % / day")
     ),
     "Cases" = list(
-      pallete = "inferno", 
+      pallete = palletes$confirmed, 
       pal = quote(log10(confirmed)),
       legend_bins = 5,
       legend_vals = log10(ranges[["confirmed"]]),
-      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " / 100,000 ppl")
+      legend_trans = labelFormat(transform=function(x) round(10^x))
     ),
-    "New Cases Moving Average" = list(
-      pallete = "Blues", 
-      pal = quote(log10(new_cases_ma)), 
-      legend_bins=5, 
-      legend_vals=log10(ranges[["new_cases_ma"]]), 
-      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " new cases per day")
-    ), 
     "Active Case Growth Rate Moving Average" = list(
-      pallete = "Spectral", 
+      pallete = palletes$active_case_growth_rate_ma, 
       pal = quote(-active_case_growth_rate_ma), 
       legend_bins=5, 
       legend_vals=-c(-.2, .3), 
@@ -623,7 +643,10 @@ world_vis_options <- reactive({
 output$worldview <- renderLeaflet({
   req(world_vis_options)
   leaflet(
-    options=leafletOptions(minZoom=2)
+    options=leafletOptions(
+      minZoom=2,
+      worldCopyJump=T
+    )
   ) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
     addLayersControl(baseGroups=names(isolate(world_vis_options())))
@@ -1065,56 +1088,56 @@ vis_options <- reactive({
 
   out <- list(
     "Growth Rate Moving Average" = list(
-      pallete = "Oranges", 
+      pallete = palletes$growth_rate_ma, 
       pal = quote(log10(100 * growth_rate_ma)), 
       legend_bins = 5, 
       legend_vals = log10(100 * c(.01, 1.5)), 
       legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " % daily growth")
     ),
     "Infection Rate" = list(
-      pallete = "inferno", 
+      pallete = palletes$rate, 
       pal = quote(log10(rate)),
       legend_bins = 5,
       legend_vals = log10(ranges[["rate"]]),
       legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " / 100,000 ppl")
     ),
     "New Cases Moving Average" = list(
-      pallete = "Blues", 
+      pallete = palletes$new_cases_ma, 
       pal = quote(log10(new_cases_ma)), 
       legend_bins=5, 
       legend_vals=log10(ranges[["new_cases_ma"]]), 
       legend_trans = labelFormat(transform=function(x) 10^x, suffix = " New Cases / day")
     ),
     "Confirmed Cases" = list(
-      pallete = "Reds", 
+      pallete = palletes$cases, 
       pal = quote(log10(cases)), 
       legend_bins=4, 
       legend_vals=log10(ranges[["cases"]]), 
       legend_trans = labelFormat(transform=function(x) 10^x)
     ),
     "Cases/Household" = list(
-      pallete = "plasma", 
+      pallete = palletes$penetrance, 
       pal = quote(penetrance),
       legend_bins = 4,
       legend_vals = ranges[['penetrance']],
       legend_trans = labelFormat(transform=identity, suffix = " cases / household")
     ),
     "Pop Density" = list(
-      pallete = "RdYlBu", 
+      pallete = palletes$pop_density, 
       pal = quote(log10(pop_density)),
       legend_bins = 5,
       legend_vals = log10(ranges[["pop_density"]]),
       legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
     ),
     "Housing Density" = list(
-      pallete = "PuOr", 
+      pallete = palletes$housing_density, 
       pal = quote(log10(housing_density)),
       legend_bins = 6,
       legend_vals = log10(ranges[["housing_density"]]),
       legend_trans = labelFormat(transform=function(x) 10^x, suffix = " homes / sqmi")
     ),
     "Occupancy Density" = list(
-      pallete = "magma", 
+      pallete = palletes$occupancy_density, 
       pal = quote(log10(occupancy_density)),
       legend_bins = 4,
       legend_vals = log10(ranges[["occupancy_density"]]),
@@ -1125,31 +1148,31 @@ vis_options <- reactive({
   if (isolate(input$usscale) == "State") {
     out <- c(out, list(
             "Active Cases" = list(
-              pallete = "Reds",
+              pallete = palletes$active_case_count,
               pal = quote(log10(active_case_count)),
               legend_bins=3,
               legend_vals=log10(ranges[["active_case_count"]]),
               legend_trans=labelFormat(transform=function(x) round(10^x))
             ),
             "Active Case Growth Rate Moving Average" = list(
-              pallete = "Spectral", 
+              pallete = palletes$active_case_growth_rate_ma, 
               pal = quote(-active_case_growth_rate_ma), 
               legend_bins=4, 
               legend_vals=-c(-.2, .3), 
               legend_trans=labelFormat(transform=function(x) round(-x * 100, 1), suffix="% Change in Active Cases / Day")
             ),
              "ICU Rate" = list(
-               pallete = "YlGnBu", 
+               pallete = palletes$icu_rate, 
                pal = quote(icu_rate), 
                legend_bins=4, 
-               legend_vals=ranges[["icu_rate"]], 
+               legend_vals=c(0, 1), 
                legend_trans=labelFormat(transform=identity, suffix=" ICU Admissions / Hospitalization")
              ), 
              "Vent Rate" = list(
-               pallete = "BrBG", 
+               pallete = palletes$vent_rate, 
                pal = quote(vent_rate), 
                legend_bins=4, 
-               legend_vals=ranges[["vent_rate"]], 
+               legend_vals=c(0, 1), 
                legend_trans=labelFormat(transform=identity, suffix=" Ventilator / ICU Admission")
              )
            )
@@ -1163,7 +1186,9 @@ vis_options <- reactive({
 ```{r usmap,context="server",include=F}
 output$usview <- renderLeaflet({
   leaflet(
-    options=leafletOptions(minZoom=4)
+    options=leafletOptions(
+      minZoom=4
+    )
   ) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
     setMaxBounds(usbox[1], usbox[2], usbox[3], usbox[4]) %>%

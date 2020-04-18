@@ -386,7 +386,7 @@ dataset$covid_track <- reactivePoll(
 
 ```{r data_interventions,context="server-start",include=F}
 # ---------------  Intervention data
-url_interventions <- "https://raw.githubusercontent.com/Keystone-Strategy/covid19-intervention-data/master/npi_data_03-24-2020.csv"
+url_interventions <- "https://raw.githubusercontent.com/Keystone-Strategy/covid19-intervention-data/master/archive/npi_data_03-24-2020.csv"
 
 process_interventions <- function(x) x %>%
   select(-matches("X[0-9]+")) %>%

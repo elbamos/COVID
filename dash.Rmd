@@ -1006,7 +1006,7 @@ us_cases_state_county <- reactive({
     ) 
 })
 
-us_cases <- reactive({
+us_cases_date_filtered <- reactive({
   req(input$usdate)
   req(input$usmincases)
 
@@ -1175,7 +1175,7 @@ adjustUSMapLegend <- function(map, groups) {
 }
 
 observe(label="update_usmap", {
-  map <- leafletProxy("usview", data=us_cases(), deferUntilFlush=T) %>%
+  map <- leafletProxy("usview", data=us_cases_date_filtered(), deferUntilFlush=T) %>%
     clearShapes() %>% clearControls()
   
   vis <- vis_options()

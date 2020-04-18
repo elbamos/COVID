@@ -956,6 +956,9 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
     active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
     active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate),
     
+    had_increase = new_cases > new_cases_ma, 
+    hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=0) + dplyr::lag(had_increase, 2, default=0)) == 3,
+    
     label = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
       "<hr>",
@@ -1192,6 +1195,7 @@ observe(label="update_usmap", {
         weight = if_else(scale == "State", shadeWeight, .3),
         fillColor = ~ pallete(eval(vis_parts$pal)),
         fillOpacity = shadeOpacity,
+        color = ~ if_else(hot_spot, "red", "blue"),
         label = ~label,
         highlight = highlightOptions(
           weight=5, fillOpacity=1.0, bringToFront = TRUE

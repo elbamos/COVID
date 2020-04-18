@@ -103,6 +103,7 @@ chn <- st_read("./Shapes/chn_admbnda_adm1_ocha.shp") %>%
       Sublocation == "Xinjiang Uygur" ~ "Xinjiang",
       Sublocation == "Guangxi Zhuang" ~ "Guangxi",
       Sublocation == "Ningxia Hui" ~ "Ningxia",
+      Sublocation == "Gansu province" ~ "Gansu",
       TRUE ~ Sublocation
     )
   )

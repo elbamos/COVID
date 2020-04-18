@@ -650,8 +650,8 @@ adjustWorldMapLegend <- function(map, groups) {
 }
 
 observe(label="update_world_map", {
-  polys <- world_polygons() %>% glimpse()
-  circles <- world_circles() %>% glimpse()
+  polys <- world_polygons() 
+  circles <- world_circles() 
   vis_options <- world_vis_options()
     
   map <- leafletProxy(data=polys, "worldview", deferUntilFlush=T) %>%
@@ -719,7 +719,7 @@ world_click_state <- reactive(label="worldmapclick", {
       filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
       filter(st_within(target, geometry, sparse=F, prepared=F)) 
     
-    if (nrow(poly_match) == 1) return(poly_match)
+    if (nrow(poly_match) > 0) return(poly_match$loc_id[1])
 
     out <- locations %>% filter(
       is.na(Subsublocation), 
@@ -732,7 +732,7 @@ world_click_state <- reactive(label="worldmapclick", {
       ) %>%
       top_n(n=1, wt=-d)
     
-    if (out$d[1] < click_d_threshold) {out}
+    if (out$d[1] < click_d_threshold) {out$loc_id[1]}
     else {NA}
   }
 })
@@ -745,19 +745,13 @@ world_case_summary <- reactive(label="world_case_summary", {
     cases_input %>% 
      ungroup() %>%
      group_by(date) %>%
-     select(-loc_id) %>%
+     #select(-loc_id) %>%
      summarize_all(~sum(., na.rm=T))
   } else {
     cases_input %>% 
-      filter(loc_id == click_state$loc_id[1]) %>% 
+      filter(loc_id == click_state) %>% 
       ungroup()
   }) %>% 
-  arrange(date) %>% 
-  mutate(
-    ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed),
-    growth_rate = new_confirmed / dplyr::lag(confirmed, 1), 
-    grma = rollmeanr(growth_rate, k=5, fill=growth_rate)
-  ) %>%
     filter(confirmed >= input$worldmincases)
 })
 
@@ -765,8 +759,17 @@ world_case_summary <- reactive(label="world_case_summary", {
 world_click_name <- reactive({
   click_state = world_click_state()
   if (is.na(click_state)) {"Global"}
-  else if (is.na(click_state$Sublocation[1])) {click_state$Location[1]}
-  else {paste0(click_state$Sublocation[1], ", ", click_state$Location[1])}
+  else {
+    locations %>%
+      filter(loc_id == click_state) %>%
+      mutate(
+        name = case_when(
+          is.na(Sublocation) ~ Location,
+          TRUE ~ paste0(Sublocation, " ", Location)
+        )
+      ) %>%
+      use_series(name)
+  }
 })
 ```
 
@@ -824,7 +827,7 @@ output$dailynewcases <- renderHighchart({
       type="line", 
       color="red", 
       marker=list(enabled=F), 
-      mapping = hcaes(x = date, y = ma), 
+      mapping = hcaes(x = date, y = new_cases_ma), 
       name="5-day moving average", 
       data = isolate(world_case_summary())
     )
@@ -848,7 +851,7 @@ output$world_growth <- renderHighchart({
       type="line", 
       marker=list(enabled=F), 
       data = world_case_summary() %>% 
-        select(date, `Growth Rate` = growth_rate, `Growth Rate 5-day Rolling Average`=grma) %>%
+        select(date, `Growth Rate` = growth_rate, `Growth Rate 5-day Rolling Average`=growth_rate_ma) %>%
         gather(key="key", value="value", -date) %>%
         mutate(value = round(value, 2)), 
       mapping = hcaes(x = date, y = value, group=key)

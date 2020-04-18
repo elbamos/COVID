@@ -746,7 +746,18 @@ world_case_summary <- reactive(label="world_case_summary", {
      ungroup() %>%
      group_by(date) %>%
      #select(-loc_id) %>%
-     summarize_all(~sum(., na.rm=T))
+     summarize_all(~sum(., na.rm=T)) %>% 
+     mutate(
+      new_dead = dead - lag(dead, 1, default=0),
+      new_confirmed = confirmed - lag(confirmed, 1, default=0),
+      new_cases_ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed),
+      growth_rate = new_confirmed / dplyr::lag(confirmed, 1), 
+      growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
+      active_case_count = confirmed - (recovered + dead), 
+      active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
+      active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
+      active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate)
+     )
   } else {
     cases_input %>% 
       filter(loc_id == click_state) %>% 

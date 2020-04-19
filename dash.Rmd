@@ -41,7 +41,7 @@ library(zoo)
 
 
 ```{r setupdata,context="server-start",include=F}
-dataset <- reactiveValues()
+dataset <- list()
 datasetdt <- reactiveValues()
 updateFreq = 10 * 60 * 1000
 

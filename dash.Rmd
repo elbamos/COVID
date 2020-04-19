@@ -159,6 +159,23 @@ region_geometries <- rbind(sub_countries, country_geoms)
 save(region_geometries, file="./region_geometries.Rda")
 ```
 
+```{r supplement_data,includ=F,context="server-start"}
+supplement_data_for_growth <- function(x) x %>% 
+  mutate(
+    new_cases = cases - lag(cases, 1, default = 0),
+    growth_rate = (new_cases / lag(cases, 1, default = 1)),
+    delta_growth_rate = (growth_rate / lag(growth_rate, 1, default = 1)),
+    new_cases_ma = rollmeanr(new_cases, k=5, fill=new_cases),
+    growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
+    active_case_count = cases - (recovered + deaths), 
+    active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
+    active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
+    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate),
+    
+    had_increase = new_cases > new_cases_ma, 
+    hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=0) + dplyr::lag(had_increase, 2, default=0)) == 3)
+```
+
 ```{r geometries,include=F,context="server-start",cache=F}
 counties <- USAboundaries::us_counties()
 states <- USAboundaries::us_states()
@@ -296,18 +313,11 @@ world_cases_jh <- reactive({
     arrange(date) %>%
     mutate(
       new_dead = dead - lag(dead, 1, default=0),
-      new_confirmed = confirmed - lag(confirmed, 1, default=0),
-      new_cases_ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed),
-      growth_rate = new_confirmed / dplyr::lag(confirmed, 1), 
-      growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
-      active_case_count = confirmed - (recovered + dead), 
-      active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
-      active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
-      active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate),
-      
-      had_increase = new_confirmed > new_cases_ma, 
-      hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=0) + dplyr::lag(had_increase, 2, default=0)) == 3
-  ) 
+      new_confirmed = confirmed - lag(confirmed, 1, default=0)
+    ) %>% 
+    rename(cases=confirmed, deaths=dead) %>%
+    supplement_data_for_growth() %>% 
+    rename(confirmed=cases, dead=deaths)
 })
 ```
 
@@ -779,17 +789,10 @@ world_case_summary <- reactive(label="world_case_summary", {
      group_by(date) %>%
      #select(-loc_id) %>%
      summarize_all(~sum(., na.rm=T)) %>% 
-     mutate(
-      new_dead = dead - lag(dead, 1, default=0),
-      new_confirmed = confirmed - lag(confirmed, 1, default=0),
-      new_cases_ma = rollmeanr(new_confirmed, k=5, fill=new_confirmed),
-      growth_rate = new_confirmed / dplyr::lag(confirmed, 1), 
-      growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
-      active_case_count = confirmed - (recovered + dead), 
-      active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
-      active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
-      active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate)
-     )
+      arrange(date) %>% 
+     rename(deaths=dead, cases=confirmed) %>%
+      supplement_data_for_growth() %>% 
+      rename(dead=deaths, confirmed=cases)
   } else {
     cases_input %>% 
       filter(loc_id == click_state) %>% 
@@ -968,7 +971,7 @@ Row
 ### US Map
 
 ```{r make_us_cases,context="server-start",include=F}
-supplement_data_for_growth <- function(x) x %>% 
+supplement_rates <- function(x) x %>% 
   mutate(
     rate = round((cases / pop) * 1e5),
     pos_rate = cases / (cases + negative),
@@ -976,18 +979,8 @@ supplement_data_for_growth <- function(x) x %>%
     hosp_rate = hospitalized / cases, 
     icu_rate = icu / hospitalized, 
     vent_rate = vent / icu,
-    new_cases = cases - lag(cases, 1, default = 0),
-    growth_rate = (new_cases / lag(cases, 1, default = 1)),
-    delta_growth_rate = (growth_rate / lag(growth_rate, 1, default = 1)),
-    new_cases_ma = rollmeanr(new_cases, k=5, fill=new_cases),
-    growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
-    active_case_count = cases - (recovered + deaths), 
-    active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
-    active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
-    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate),
-    
-    had_increase = new_cases > new_cases_ma, 
-    hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=0) + dplyr::lag(had_increase, 2, default=0)) == 3)
+
+  )
 
 make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %>%
   inner_join(
@@ -1013,6 +1006,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
   select(-aland,-awater) %>%
   group_by(loc_id) %>%
   arrange(date) %>%
+  supplement_rates() %>% 
   supplement_data_for_growth() %>% 
   mutate(
     label = paste0(

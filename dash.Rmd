@@ -1413,7 +1413,7 @@ output$us_growth_rate <- renderHighchart(
           `Growth Rate 5-day Moving Average` = growth_rate_ma
         ) %>% 
         gather(key="key", value="value", -date) %>%
-        mutate(value = round(value, 2)),
+        mutate(value = round(value * 100, 2)),
       mapping=hcaes(x=date, y=value, group=key),
       tooltip=list(
         shared=T, 

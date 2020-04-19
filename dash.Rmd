@@ -303,7 +303,10 @@ world_cases_jh <- reactive({
       active_case_count = confirmed - (recovered + dead), 
       active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
       active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
-      active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate)
+      active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate),
+      
+      had_increase = new_confirmed > new_cases_ma, 
+      hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=0) + dplyr::lag(had_increase, 2, default=0)) == 3
   ) 
 })
 ```
@@ -549,7 +552,8 @@ world_cases <- reactive({
       confirmed, dead, 
       new_dead, new_confirmed, new_cases_ma, recovered, 
       growth_rate, growth_rate_ma,
-      active_case_count, active_case_growth, active_case_growth_rate, active_case_growth_rate_ma
+      active_case_count, active_case_growth, active_case_growth_rate, active_case_growth_rate_ma,
+      hot_spot
       ) %>% 
     mutate(
       popup=paste0('<font color="blue">', 
@@ -689,7 +693,8 @@ observe(label="update_world_map", {
     map %<>% addPolygons(
       opacity = 0.7,
       group = selection,
-      weight = .1,
+      weight = ~ if_else(hot_spot, 2, .1),
+      color = ~ if_else(hot_spot, "red", "blue"),
       fillColor = ~ pallete(eval(vis_parts$pal)),
       fillOpacity = 0.7,
       label = ~popup,
@@ -1229,7 +1234,11 @@ observe(label="update_usmap", {
      map %<>% addPolygons(
         opacity = shadeOpacity,
         group = selection,
-        weight = if_else(scale == "State", shadeWeight, .3),
+        weight = ~ case_when(
+          scale == "State" & hot_spot ~ 2, 
+          hot_spot ~ 1, 
+          TRUE ~ .3
+        ),
         fillColor = ~ pallete(eval(vis_parts$pal)),
         fillOpacity = shadeOpacity,
         color = ~ if_else(hot_spot, "red", "blue"),

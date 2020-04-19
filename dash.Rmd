@@ -900,8 +900,12 @@ output$world_growth <- renderHighchart({
       data = world_case_summary() %>% 
         select(date, `Growth Rate` = growth_rate, `Growth Rate 5-day Rolling Average`=growth_rate_ma) %>%
         gather(key="key", value="value", -date) %>%
-        mutate(value = round(value * 100)), 
-      mapping = hcaes(x = date, y = value, group=key)
+        mutate(value = round(value * 100, 2)), 
+      mapping = hcaes(x = date, y = value, group=key),
+      tooltip=list(
+        shared=T, 
+        pointFormat='<span style="color:{point.color}">●</span> {series.name}: <b>{point.y}</b> %<br/>.'
+        )
     ) %>%
     hc_tooltip(shared=T)
 })
@@ -1410,9 +1414,15 @@ output$us_growth_rate <- renderHighchart(
           `Growth Rate` = growth_rate, 
           `Growth Rate 5-day Moving Average` = growth_rate_ma
         ) %>% 
-        gather(key="key", value="value", -date),
-      mapping=hcaes(x=date, y=value, group=key)
-    )
+        gather(key="key", value="value", -date) %>%
+        mutate(value = round(value, 2)),
+      mapping=hcaes(x=date, y=value, group=key),
+      tooltip=list(
+        shared=T, 
+        pointFormat='<span style="color:{point.color}">●</span> {series.name}: <b>{point.y}</b> %<br/>.'
+        )
+    ) %>%
+    hc_tooltip(shared=T)
 )
 ```
 

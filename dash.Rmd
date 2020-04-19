@@ -153,8 +153,6 @@ country_geoms <- ne_countries(scale="small", country=countries_to_load, returncl
     )
   )
 
-#Countries to fix:  Quebec, Inner Mongolia, Ningxia, Xinjiang, Tibet, Hong Kong
-
 region_geometries <- rbind(sub_countries, country_geoms)
 save(region_geometries, file="./region_geometries.Rda")
 ```

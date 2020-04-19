@@ -888,7 +888,11 @@ output$world_growth <- renderHighchart({
   req(input$worldscale)
   highchart()  %>%
     hc_title(text = paste0("Growth Rate (", isolate(world_click_name()), ")")) %>%
-    hc_yAxis(title = "") %>%
+    hc_yAxis(title = "", 
+             type="logarithmic",
+             labels=list(
+               format="{value} %"
+             )) %>%
     hc_xAxis(type = "datetime") %>%
     hc_add_series(
       type="line", 
@@ -896,7 +900,7 @@ output$world_growth <- renderHighchart({
       data = world_case_summary() %>% 
         select(date, `Growth Rate` = growth_rate, `Growth Rate 5-day Rolling Average`=growth_rate_ma) %>%
         gather(key="key", value="value", -date) %>%
-        mutate(value = round(value, 2)), 
+        mutate(value = round(value * 100)), 
       mapping = hcaes(x = date, y = value, group=key)
     ) %>%
     hc_tooltip(shared=T)
@@ -1393,7 +1397,10 @@ output$us_growth_rate <- renderHighchart(
   highchart() %>% 
     hc_title(text=paste0("Growth Rate (", isolate(click_state_name()), ")")) %>%
     hc_xAxis(type="datetime") %>%
-    hc_yAxis(title="", type="linear") %>% 
+    hc_yAxis(title="", type="logarithmic", 
+             labels=list(
+               format="{value} %"
+             )) %>% 
     hc_add_series(
       type="line", 
       marker=list(enabled=F), 

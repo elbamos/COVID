@@ -503,6 +503,9 @@ output$worldoverviewinputs <- renderUI({
   cases <- world_cases_jh()
   
   tagList(
+    p("Use the icon in the upper right corner of the map to change viewed metric."), 
+    p("Click on locations to zoom the charts."),
+    p("Red outlines indicate regions where the rate of infection is accelerating (new cases have been greater than the trailing average new cases per day for three consecutive days)."),
     sliderInput(
       "worlddate",
       "Date",
@@ -917,7 +920,9 @@ output$usinputs <- renderUI({
   cases <- dataset$cases_county_nyt()
   
   tagList(
-    p("Use the icon in the upper right corner of the map to change viewed metric. Click on locations to zoom the charts."),
+    p("Use the icon in the upper right corner of the map to change viewed metric."), 
+    p("Click on locations to zoom the charts."),
+    p("Red outlines indicate regions where the rate of infection is accelerating (new cases have been greater than the trailing average new cases per day for three consecutive days)"),
     sliderInput("usdate", "Date:",
                 min=min(cases$date), 
                 max=max(cases$date), 

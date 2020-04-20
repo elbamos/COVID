@@ -39,6 +39,11 @@ library(jsonlite)
 library(zoo)
 ```
 
+```{r params,include=F}
+params <- list(
+  k = 7
+)
+```
 
 ```{r setupdata,context="server-start",include=F}
 dataset <- list()
@@ -163,12 +168,12 @@ supplement_data_for_growth <- function(x) x %>%
     new_cases = cases - lag(cases, 1, default = 0),
     growth_rate = (new_cases / lag(cases, 1, default = 1)),
     delta_growth_rate = (growth_rate / lag(growth_rate, 1, default = 1)),
-    new_cases_ma = rollmeanr(new_cases, k=5, fill=new_cases),
-    growth_rate_ma = rollmeanr(growth_rate, k=5, fill=growth_rate),
+    new_cases_ma = rollmeanr(new_cases, k=params$k, fill=new_cases),
+    growth_rate_ma = rollmeanr(growth_rate, k=params$k, fill=growth_rate),
     active_case_count = cases - (recovered + deaths), 
     active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
     active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
-    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=5, fill=active_case_growth_rate),
+    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=params$k, fill=active_case_growth_rate),
     
     had_increase = new_cases > new_cases_ma, 
     hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=0) + dplyr::lag(had_increase, 2, default=0)) == 3)
@@ -872,7 +877,7 @@ output$dailynewcases <- renderHighchart({
       color="red", 
       marker=list(enabled=F), 
       mapping = hcaes(x = date, y = new_cases_ma), 
-      name="5-day moving average", 
+      name=paste0(params$k, "-day moving average"), 
       data = isolate(world_case_summary())
     )
 })
@@ -899,9 +904,12 @@ output$world_growth <- renderHighchart({
       type="line", 
       marker=list(enabled=F), 
       data = world_case_summary() %>% 
-        select(date, `Growth Rate` = growth_rate, `Growth Rate 5-day Rolling Average`=growth_rate_ma) %>%
+        select(date, `Growth Rate` = growth_rate, growth_rate_ma) %>%
         gather(key="key", value="value", -date) %>%
-        mutate(value = round(value * 100, 2)), 
+        mutate(
+          value = round(value * 100, 2),
+          key = if_else(key == "growth_rate_ma", paste0(params$k, "-day Rolling Average"), key)
+        ), 
       mapping = hcaes(x = date, y = value, group=key),
       tooltip=list(
         shared=T, 
@@ -1032,9 +1040,9 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
       "New Cases: ", new_cases, "<br/>",
       "Growth: ", round(growth_rate, 3), " d/d<br/>",
       "Change in Growth: ", round(delta_growth_rate, 3), "<br/>",
-      "5-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
-      "5-Day Trailing Average Growth / Day: ", round(growth_rate_ma * 100, 1), "%<br/>",
-      if_else(is.na(county), paste0("5-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
+      params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
+      params$k, "-Day Trailing Average Growth / Day: ", round(growth_rate_ma * 100, 1), "%<br/>",
+      if_else(is.na(county), paste0(params$k, "-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
     ),
     label = map(label, HTML)
   )
@@ -1381,7 +1389,7 @@ output$usdailynewcases <- renderHighchart(
       marker=list(enabled=F), 
       data=isolate(us_case_summary() %>% select(date, new_cases_ma)),
       mapping=hcaes(x=date, y=new_cases_ma), 
-      name="5-day moving average"
+      name=paste0(params$k, "-day moving average")
     )
 )
 ```
@@ -1408,10 +1416,13 @@ output$us_growth_rate <- renderHighchart(
         select(
           date, 
           `Growth Rate` = growth_rate, 
-          `Growth Rate 5-day Moving Average` = growth_rate_ma
+          growth_rate_ma
         ) %>% 
         gather(key="key", value="value", -date) %>%
-        mutate(value = round(value * 100, 2)),
+        mutate(
+          value = round(value * 100, 2),
+          key = if_else(key == "growth_rate_ma", paste0(params$k, "-day Moving Average"), key)
+        ),
       mapping=hcaes(x=date, y=value, group=key),
       tooltip=list(
         shared=T, 
@@ -1761,7 +1772,7 @@ curve_flattening_data <- reactive({
 })
 ```
 
-### Curve Flattening (# of cases vs. 5-day moving average new cases/day)
+### Curve Flattening (# of cases vs. `r params$k`-day moving average new cases/day)
 
 ```{r curve_flattening,context="server"}
 output$curve_flattening <- renderHighchart(

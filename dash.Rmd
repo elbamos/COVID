@@ -509,6 +509,104 @@ input <- list(
 output <- list()
 ```
 
+Introduction 
+==================================
+
+Row
+----------------------------------
+
+### Introduction 
+
+```{r intro_text}
+tagList(
+  h2("Introduction"), 
+  p("This app visualizes publicly available data regarding the progress of the COVID-19 pandemic. Its purpose is to consolidate varied data sources, and provide coherent and up-to-date visualizations of the data."),
+  p("Click on the tabs to see different views."),
+  h3("World Overview"),
+  p("The world overview shows the progress of the pandemic by country, globally."),
+  p("Regions where the rate of infection is accelerating (current exponential growth) are highlighted in red."),
+  p("Click on a region to focus the charts below the map."), 
+  h3("United States"),
+  p("The US view shows detailed information about the pandemic by US State and County.")
+)
+
+```
+
+Row {data-height=60}
+-----------------------------
+
+```{r show_data_status,context="server-start"}
+data_status_box <- function(f, data_name, title) {
+  renderValueBox({
+    val <- tryCatch({
+      rows <- nrow(f())
+      if (rows > 0) {
+        update_time <- datasetdt[[data_name]] 
+        format(update_time, "OK %b %d, %Y %I:%M %p", tz="America/Los_Angeles")
+      } else "Could not fetch data"
+    }, 
+    error = function(e) as.character(e)
+    )
+    
+    valueBox(tags$p(val, style="font-size: 50%"), caption=title, color=if_else(str_starts(val, "OK"), "success", "warning"))
+  })
+}
+```
+
+### JH Data
+
+```{r status_jh,context="server"}
+output$status_jh <- data_status_box(world_cases_jh, "Confirmed Cases (JH)", "Johns Hopkins Global Data")
+```
+
+```{r status_jh_out}
+valueBoxOutput("status_jh")
+```
+
+### US State & County Data
+
+```{r status_us,context="server"}
+output$status_us <- data_status_box(dataset$cases_state_nyt, "NYT States", "NYT US State & County Data")
+```
+
+```{r status_us_out}
+valueBoxOutput("status_us")
+```
+
+### Interventions
+
+```{r status_interventions,context="server"}
+output$status_interventions <- data_status_box(dataset$interventions, "Interventions", "Intervention Data")
+```
+
+```{r status_interventions_out}
+valueBoxOutput("status_interventions")
+```
+
+
+
+
+### COVID Tracker
+
+```{r status_covid_track,context="server"}
+output$status_covid_track <- data_status_box(dataset$covid_track, "COVID Track", "COVID Tracker")
+```
+
+```{r status_covid_track_out}
+valueBoxOutput("status_covid_track")
+```
+
+
+### NY DOH
+
+```{r status_ny,context="server"}
+output$status_nydoh <- data_status_box(dataset$nyzipcode, "NY Testing by Zipcode", "NY DOH")
+```
+
+```{r status_ny_out}
+valueBoxOutput("status_nydoh")
+```
+
 World Overview
 =======================================================================
 

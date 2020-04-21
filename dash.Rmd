@@ -1048,7 +1048,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
               )
               , " "),
       "<hr>",
-      "New Cases: ", new_cases, "<br/>",
+      "New Cases: ", cases_new, "<br/>",
       "Growth: ", round(cases_growth_rate, 3), " d/d<br/>",
       params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
       params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>",
@@ -1097,7 +1097,7 @@ vis_options <- reactive({
     ungroup() %>%
     as.data.frame() %>% 
     select(pop, cases, deaths, negative, pending, hospitalized, icu, vent, recovered, 
-           pop_density, housing_density, occupancy_density, rate, pos_rate, new_cases, 
+           pop_density, housing_density, occupancy_density, rate, pos_rate, cases_new, 
            cases_growth_rate, penetrance, hosp_rate, icu_rate, vent_rate,
            new_cases_ma, cases_growth_rate_ma, active_cases, active_case_growth_rate_ma) %>% 
     gather(key="key", value="val") %>%
@@ -1342,7 +1342,7 @@ us_case_summary <- reactive(label="us_case_summary", {
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
-           `New Cases` = new_cases, new_cases_ma, cases_growth_rate, cases_growth_rate_ma) 
+           `New Cases` = cases_new, new_cases_ma, cases_growth_rate, cases_growth_rate_ma) 
   
 })
 
@@ -1737,7 +1737,7 @@ Inputs {.sidebar}
 ```{r curve_flattening_inputs_server,context="server"}
 output$curve_flattening_inputs <- renderUI({
   tagList(
-    radioButtons("curve_flattening_resolution", label="Resolution", choices=c("Countries", "States"), selected="Countries"),
+    radioButtons("curve_flattening_resolution", label="Resolution", choices=c("Countries", "States", "Counties"), selected="Countries"),
     sliderTextInput(
       "curve_flattening_min_cases", 
       "Minimum Number of Cases", 
@@ -1774,11 +1774,12 @@ curve_flattening_data <- reactive({
   } else {
     us_cases_with_geo() %>% 
       filter(
-        us_level == "State", 
+        us_level == resolution, 
         cases > input$curve_flattening_min_cases, 
         ! is.na(new_cases_ma)
       ) %>% 
       data.frame() %>% 
+      mutate(name = paste0(county, ", ", state)) %>% 
       select(name=state, cases, new_cases_ma, date)
   }
 })

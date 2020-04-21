@@ -8,6 +8,7 @@ runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
+# TODO: Some growth rates are unnecessarily NA
 # TODO: Add view of proportion of tests that are positive to the US view
 # TODO: add deselect all to us testing page
 # TODO: Animate the bar charts next to the maps
@@ -85,7 +86,7 @@ get_new_data_json <- function(tag, url, f) {
 }
 ```
 
-```{r assemble_country_geometries,context="data",eval=F}
+```{r assemble_country_geometries,context="data",include=F,eval=F}
 # Not run in shiny - contains code used to create the country geometry set
 library(rnaturalearth)
 library(ozmaps)
@@ -162,21 +163,25 @@ region_geometries <- rbind(sub_countries, country_geoms)
 save(region_geometries, file="./region_geometries.Rda")
 ```
 
-```{r supplement_data,includ=F,context="server-start"}
+```{r supplement_data,include=F,context="server-start"}
 supplement_data_for_growth <- function(x) x %>% 
   mutate(
-    new_cases = cases - lag(cases, 1, default = 0),
-    growth_rate = (new_cases / lag(cases, 1, default = 1)),
-    delta_growth_rate = (growth_rate / lag(growth_rate, 1, default = 1)),
-    new_cases_ma = rollmeanr(new_cases, k=params$k, fill=new_cases),
-    growth_rate_ma = rollmeanr(growth_rate, k=params$k, fill=growth_rate),
-    active_case_count = cases - (recovered + deaths), 
-    active_case_growth = active_case_count - dplyr::lag(active_case_count, 1, default=0), 
-    active_case_growth_rate = active_case_growth / dplyr::lag(active_case_count, 1),
-    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=params$k, fill=active_case_growth_rate),
+    cases_new= cases - lag(cases, 1, default = 0),
+    cases_growth_rate = case_when(
+      cases_new == 0 ~ 0, 
+      lag(cases, 1) == 0 ~ .1, 
+      TRUE ~ (cases_new / lag(cases, 1))
+    ) ,
+    active_cases = cases - (recovered + deaths), 
+    active_case_growth = active_cases - dplyr::lag(active_cases, 1, default=0), 
+    active_case_growth_rate = active_case_growth / dplyr::lag(active_cases, 1),
     
-    had_increase = new_cases > new_cases_ma, 
-    hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=0) + dplyr::lag(had_increase, 2, default=0)) == 3)
+    new_cases_ma = rollmeanr(cases_new, k=params$k, fill=NA),
+    cases_growth_rate_ma = rollmeanr(cases_growth_rate, k=params$k, fill=NA),
+    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=params$k, fill=NA),
+    
+    had_increase = cases_new > new_cases_ma, 
+    hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=1) + dplyr::lag(had_increase, 2, default=1)) == 3)
 ```
 
 ```{r geometries,include=F,context="server-start",cache=F}
@@ -469,15 +474,15 @@ census_data <- get_acs(geography = "county", year = 2015,
 save(census_data, file="census_data.Rda")
 ```
 
-```{r palettes,context="data",cache=T}
+```{r palettes,context="server-start",cache=F,include=F}
 palletes <- list(
   # Counts
   confirmed = "Reds", 
   cases = "Reds", 
-  active_case_count = "Oranges",
+  active_cases = "Oranges",
   # Moving averages
   new_cases_ma = "YlOrRd", 
-  growth_rate_ma = "YlOrBr", 
+  cases_growth_rate_ma = "YlOrBr", 
   active_case_growth_rate_ma = "PiYG",
   # Demographics
   pop_density = "YlGn", 
@@ -491,7 +496,7 @@ palletes <- list(
 )
 ```
 
-```{r phony_inputs,eval=F}
+```{r phony_inputs,eval=F,include=F}
 # This is used during testing so that reactive expressions that depend on input can function
 
 input <- list(
@@ -500,6 +505,8 @@ input <- list(
   worldscale = "linear", 
   worldmincases = 1
 )
+
+output <- list()
 ```
 
 World Overview
@@ -511,7 +518,7 @@ Inputs {.sidebar}
 
 ### Input
 
-```{r context="server",include=F}
+```{r world_input,context="server",include=F}
 output$worldoverviewinputs <- renderUI({
   cases <- world_cases_jh()
   
@@ -543,7 +550,7 @@ output$worldoverviewinputs <- renderUI({
   )
 })
 ```
-```{r context="render"}
+```{r world_input_output}
 #radioButtons("worlduslevel", "US Detail", choices=c("Country", "State", "County"), selected="State")
 uiOutput("worldoverviewinputs")
 ```
@@ -567,8 +574,8 @@ world_cases <- reactive({
       lat, lng, Sublocation, Subsublocation, Location, loc_id,
       confirmed, dead, 
       new_dead, new_confirmed, new_cases_ma, recovered, 
-      growth_rate, growth_rate_ma,
-      active_case_count, active_case_growth, active_case_growth_rate, active_case_growth_rate_ma,
+      cases_growth_rate, cases_growth_rate_ma,
+      active_cases, active_case_growth, active_case_growth_rate, active_case_growth_rate_ma,
       hot_spot
       ) %>% 
     mutate(
@@ -579,13 +586,13 @@ world_cases <- reactive({
                      TRUE ~ Location
                    ),
                    "</font><br/>", 
-                   "Active: ", active_case_count,
+                   "Active: ", active_cases,
                    "<br/>Confirmed: ", confirmed, 
                    "<br/>Deaths: ", dead,
                    "<br/>Recovered: ", recovered, 
                    "<hr/>", 
                    "New Cases/Day Moving Average: ", round(new_cases_ma), 
-                   "<br/>Case Growth Rate Moving Average: ", round(growth_rate_ma * 100), "% change in newly diagnosed cases per day",
+                   "<br/>Case Growth Rate Moving Average: ", round(cases_growth_rate_ma * 100), "% change in newly diagnosed cases per day",
                    "<br/>Active Case Growth Rate Moving Average: ", round(active_case_growth_rate_ma * 100), "% change in active cases per day"
       ),
       popup=map(popup, HTML)
@@ -610,10 +617,10 @@ world_circles <- reactive({
 world_vis_options <- reactive({
   minmax <- world_cases_jh() %>%
     ungroup() %>%
-    select(confirmed, dead, recovered, growth_rate, new_cases_ma, growth_rate_ma, active_case_growth_rate_ma) %>% 
+    select(confirmed, dead, recovered, cases_growth_rate, new_cases_ma, cases_growth_rate_ma, active_case_growth_rate_ma) %>% 
     gather(key="key", value="val") %>%
     filter(!is.na(val), !is.infinite(val), !is.nan(val),
-           if_else(key %in% c("confirmed", "growth_rate_ma", "new_cases_ma"), val > 0, TRUE)) %>%
+           if_else(key %in% c("confirmed", "cases_growth_rate_ma", "new_cases_ma"), val > 0, TRUE)) %>%
     group_by(key) %>% 
     summarize(
       min=min(val), 
@@ -635,8 +642,8 @@ world_vis_options <- reactive({
       legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " new cases per day")
     ), 
     "Growth Rate Moving Average" = list(
-      pallete = palletes$growth_rate_ma,
-      pal = quote(log10(100 * growth_rate_ma)), 
+      pallete = palletes$cases_growth_rate_ma,
+      pal = quote(log10(100 * cases_growth_rate_ma)), 
       legend_bins = 5, 
       legend_vals = log10(100 * c(.01, 1.5)), 
       legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " % / day")
@@ -781,7 +788,9 @@ world_click_state <- reactive(label="worldmapclick", {
     else {NA}
   }
 })
+```
 
+```{r world_case_summary,context="server",include=F}
 world_case_summary <- reactive(label="world_case_summary", {
   cases_input <- world_cases_jh()
   click_state <- world_click_state()
@@ -832,7 +841,9 @@ output$worldcases <- renderHighchart({
   req(input$worldscale)
   highchart()  %>%
     hc_title(text = paste0("Cases (", isolate(world_click_name()), ")")) %>%
-    hc_yAxis(title = "", type = input$worldscale) %>%
+    hc_yAxis(title = "", 
+             type = input$worldscale,
+             min = if_else(input$worldscale == "linear", 0, 1)) %>%
     hc_xAxis(type = "datetime") %>%
     hc_add_series(
       type = "line",
@@ -904,11 +915,11 @@ output$world_growth <- renderHighchart({
       type="line", 
       marker=list(enabled=F), 
       data = world_case_summary() %>% 
-        select(date, `Growth Rate` = growth_rate, growth_rate_ma) %>%
+        select(date, `Growth Rate` = cases_growth_rate, cases_growth_rate_ma) %>%
         gather(key="key", value="value", -date) %>%
         mutate(
           value = round(value * 100, 2),
-          key = if_else(key == "growth_rate_ma", paste0(params$k, "-day Rolling Average"), key)
+          key = if_else(key == "cases_growth_rate_ma", paste0(params$k, "-day Rolling Average"), key)
         ), 
       mapping = hcaes(x = date, y = value, group=key),
       tooltip=list(
@@ -1022,7 +1033,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
       "Density: ", round(pop_density, 4), " ppl/sqmi<br/>",
       "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>",
       "<hr>",
-      if_else(is.na(county), paste0("Active Cases: ", active_case_count, "<br/>"), ""),
+      if_else(is.na(county), paste0("Active Cases: ", active_cases, "<br/>"), ""),
       "Confirmed Cases: ", cases, "<br/>", 
       "Infection Rate: ", rate, " / 100,000 ppl<br/>",
       "Penetrance: ", round(penetrance, 3), " cases / household<br/>",
@@ -1038,10 +1049,9 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
               , " "),
       "<hr>",
       "New Cases: ", new_cases, "<br/>",
-      "Growth: ", round(growth_rate, 3), " d/d<br/>",
-      "Change in Growth: ", round(delta_growth_rate, 3), "<br/>",
+      "Growth: ", round(cases_growth_rate, 3), " d/d<br/>",
       params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
-      params$k, "-Day Trailing Average Growth / Day: ", round(growth_rate_ma * 100, 1), "%<br/>",
+      params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>",
       if_else(is.na(county), paste0(params$k, "-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
     ),
     label = map(label, HTML)
@@ -1088,13 +1098,13 @@ vis_options <- reactive({
     as.data.frame() %>% 
     select(pop, cases, deaths, negative, pending, hospitalized, icu, vent, recovered, 
            pop_density, housing_density, occupancy_density, rate, pos_rate, new_cases, 
-           growth_rate, delta_growth_rate, penetrance, hosp_rate, icu_rate, vent_rate,
-           new_cases_ma, growth_rate_ma, active_case_count, active_case_growth_rate_ma) %>% 
+           cases_growth_rate, penetrance, hosp_rate, icu_rate, vent_rate,
+           new_cases_ma, cases_growth_rate_ma, active_cases, active_case_growth_rate_ma) %>% 
     gather(key="key", value="val") %>%
     filter(!is.na(val), !is.infinite(val), !is.nan(val),
            val > 0 | ! key %in% c("pop_density", "housing_density", "rate", "cases", 
-                                  "new_cases_ma", "growth_rate_ma", 
-                                  "active_case_count")) %>%
+                                  "new_cases_ma", "cases_growth_rate_ma", 
+                                  "active_cases")) %>%
     group_by(key) %>% 
     summarize(
       min=min(val), 
@@ -1109,8 +1119,8 @@ vis_options <- reactive({
 
   out <- list(
     "Growth Rate Moving Average" = list(
-      pallete = palletes$growth_rate_ma, 
-      pal = quote(log10(100 * growth_rate_ma)), 
+      pallete = palletes$cases_growth_rate_ma, 
+      pal = quote(log10(100 * cases_growth_rate_ma)), 
       legend_bins = 5, 
       legend_vals = log10(100 * c(.01, 1.5)), 
       legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " % daily growth")
@@ -1169,10 +1179,10 @@ vis_options <- reactive({
   if (isolate(input$usscale) == "State") {
     out <- c(out, list(
             "Active Cases" = list(
-              pallete = palletes$active_case_count,
-              pal = quote(log10(active_case_count)),
+              pallete = palletes$active_cases,
+              pal = quote(log10(active_cases)),
               legend_bins=3,
-              legend_vals=log10(ranges[["active_case_count"]]),
+              legend_vals=log10(ranges[["active_cases"]]),
               legend_trans=labelFormat(transform=function(x) round(10^x))
             ),
             "Active Case Growth Rate Moving Average" = list(
@@ -1332,7 +1342,7 @@ us_case_summary <- reactive(label="us_case_summary", {
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
-           `New Cases` = new_cases, new_cases_ma, growth_rate, growth_rate_ma) 
+           `New Cases` = new_cases, new_cases_ma, cases_growth_rate, cases_growth_rate_ma) 
   
 })
 
@@ -1351,13 +1361,15 @@ output$uscaseslinear <- renderHighchart({
   req(input$uslog)
   highchart() %>% 
     hc_title(text=paste0("Confirmed Cases, Hosp. and Deaths (", isolate(click_state_name()), ")")) %>%
-    hc_yAxis(title="", type=input$uslog, min=1) %>%
+    hc_yAxis(title="", type=input$uslog, 
+             min = if_else(input$uslog == "linear", 0, 1)
+             ) %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(
       type="line",
       marker=list(enabled=F), 
       data=us_case_summary() %>% 
-        select(-new_cases_ma, -growth_rate, -growth_rate_ma) %>% 
+        select(-new_cases_ma, -cases_growth_rate, -cases_growth_rate_ma) %>% 
         gather(key="Series", value="val", -date) %>%
         filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
@@ -1415,13 +1427,13 @@ output$us_growth_rate <- renderHighchart(
       data=us_case_summary() %>% 
         select(
           date, 
-          `Growth Rate` = growth_rate, 
-          growth_rate_ma
+          `Growth Rate` = cases_growth_rate, 
+          cases_growth_rate_ma
         ) %>% 
         gather(key="key", value="value", -date) %>%
         mutate(
           value = round(value * 100, 2),
-          key = if_else(key == "growth_rate_ma", paste0(params$k, "-day Moving Average"), key)
+          key = if_else(key == "cases_growth_rate_ma", paste0(params$k, "-day Moving Average"), key)
         ),
       mapping=hcaes(x=date, y=value, group=key),
       tooltip=list(
@@ -1690,20 +1702,20 @@ Row
 output$interventions_rate <- renderHighchart({
   highchart() %>% 
     hc_add_series(data=filtered_interventions_with_cases(), type="line", 
-                  mapping=hcaes(x=days, y=growth_rate, group=name), 
+                  mapping=hcaes(x=days, y=cases_growth_rate, group=name), 
                   colorAxis=0,
                   lineWidth=1, 
                   marker=list(enabled=F),
                   tooltip=list(
-                    pointFormat="Date: {point.date}<br/>Cases: {point.cases}<br/>Growth Rate: {point.growth_rate}"
+                    pointFormat="Date: {point.date}<br/>Cases: {point.cases}<br/>Growth Rate: {point.cases_growth_rate}"
                   )) %>% 
     hc_yAxis(title="Growth Rate", type="logarithmic") %>%
     hc_add_series(data=intervention_points(), type="point", 
-                  mapping=hcaes(x=days, y=growth_rate, fill=name,
+                  mapping=hcaes(x=days, y=cases_growth_rate, fill=name,
                                 color=name, group=intervention), 
                   colorAxis=0, tooltip=list(
                     headerFormat="<span style='color:{point.color}'>●</span> <span style='font-size: 12px'> {series.name}</span><br/>",
-                    pointFormat="{point.name}<br/>Date: {point.date}<br/>Cases: {point.cases}<br/>Growth Rate: {point.growth_rate}"
+                    pointFormat="{point.name}<br/>Date: {point.date}<br/>Cases: {point.cases}<br/>Growth Rate: {point.cases_growth_rate}"
                   )) %>%
     hc_title(text="Growth Rate")
 })

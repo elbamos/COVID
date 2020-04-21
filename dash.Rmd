@@ -40,7 +40,7 @@ library(jsonlite)
 library(zoo)
 ```
 
-```{r params,include=F}
+```{r params,include=F,cache=F}
 params <- list(
   k = 7
 )

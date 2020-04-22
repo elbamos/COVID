@@ -1759,11 +1759,11 @@ sfzip_geoms <- reactive(
     left_join(zips %>% data.frame() %>% select(zipcode, aland10)) %>%
     inner_join(dataset$sfzipcode() %>% mutate(zipcode = as.character(zipcode))) %>% 
     mutate(
-      rate = cases / pop,
+      rate = (cases / pop) * 100000,
       label = paste0(
         "<font color='blue'>Zipcode: ", zipcode, "</font><br/>",
         "Cases: ", cases, " / ", pop, 
-        "Infection rate: ", rate 
+        "<br/>Infection rate: ", round(rate), " / 100,000ppl"
       ),
       label = map(label, HTML)
     )
@@ -1771,7 +1771,8 @@ sfzip_geoms <- reactive(
 
 sf_bbox <- st_bbox(zips %>% filter(str_starts(zipcode, "94")) %>% use_series(geometry))
 sf_centroid <- st_centroid(zips %>% filter(str_starts(zipcode, "94")) %>% use_series(geometry))
-rate_pal <- colorNumeric("Reds", domain=c(0, 1000))
+rate_pal <- colorNumeric(palletes$rate, domain=log10(c(1, 1000)))
+cases_pal <- colorNumeric(palletes$cases, domain=log10(c(1, 1000)))
 ```
 
 ```{r sfmap_server,context="server",include=F}
@@ -1779,12 +1780,15 @@ output$sfview <- renderLeaflet({
   leaflet(sfzip_geoms() %>% filter(date == max(date))) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>% 
     setMaxBounds(sf_bbox[1], sf_bbox[2], sf_bbox[3], sf_bbox[4]) %>%
-    #setView(lat=sf_centroid[[1]][2], lng=sf_centroid[[1]][1], zoom=10) %>%
-    addLegend(pal=rate_pal, values=c(0, 50, 100, 1000), 
-              title="Positive Rate")  %>%
-    addPolygons(weight=0, opacity=.3, stroke=F, fill=T, 
-               fillOpacity = 0.4, fillColor=~rate_pal(rate), 
-               label=~label) 
+    addPolygons(weight=.1, opacity=.3, stroke=T, fill=T, 
+                group="Infection Rate", 
+               fillOpacity = 0.4, fillColor=~rate_pal(log10(rate)), 
+               label=~label) %>%
+    addPolygons(weight=.1, opacity=.3, stroke=T, fill=T, 
+                group="Cases",
+           fillOpacity = 0.4, fillColor=~cases_pal(log10(cases)), 
+           label=~label) %>%
+    addLayersControl(baseGroups=c("Infection Rate", "Cases"))
 })
 ```
 

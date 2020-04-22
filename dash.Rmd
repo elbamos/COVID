@@ -527,7 +527,21 @@ tagList(
   p("Regions where the rate of infection is accelerating (current exponential growth) are highlighted in red."),
   p("Click on a region to focus the charts below the map."), 
   h3("United States"),
-  p("The US view shows detailed information about the pandemic by US State and County.")
+  p("The US view shows detailed information about the pandemic by US State and County."),
+  p("Use the icon in the upper right hand corner of the map to select data to view."),
+  p("The 'Active Case Growth Rate Moving Average', for example, shows whether the burden on health care is increasing or decreasing in each region."), 
+  h3("US Testing"),
+  p("The US Testing pane shows the progress in testing roll-out, country-wide and by state."),
+  h3("New York City Testing"),
+  p("The NYC Testing pane shows the number of positive tests, and proportion of tests that are positive, by New York City zipcode."),
+  p("This view can be used to explore how socioeconomic factors influence both test availability and susceptibility to the virus."), 
+  h3("Interventions"), 
+  p("The interventions pane shows the effect of different interventions on the rate of infection."),
+  p("Each line represents a county. The x axis is the number of days from the time that county hit a threshold number of infections."),
+  p("The points on the lines show the dates on which different interventions were imposed."),
+  h3("Curve Flattening"),
+  p("This chart shows, for different regions, the number of new cases per day vs. the number of pre-existing cases, over time."),
+  p("Its an indication of each region's effectiveness in stopping the spread.")
 )
 
 ```
@@ -1316,12 +1330,12 @@ vis_options <- reactive({
 output$usview <- renderLeaflet({
   leaflet(
     options=leafletOptions(
-      minZoom=4
+      minZoom=3
     )
   ) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
     setMaxBounds(usbox[1], usbox[2], usbox[3], usbox[4]) %>%
-    setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=4) 
+    setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=3) 
 })
 
 adjustUSMapLegend <- function(map, groups) {

@@ -90,6 +90,7 @@ get_new_data_json <- function(tag, url, f) {
 # Not run in shiny - contains code used to create the country geometry set
 library(rnaturalearth)
 library(ozmaps)
+library(geojsonsf)
 
 chn <- st_read("./Shapes/chn_admbnda_adm1_ocha.shp") %>% 
   group_by(ADM1_EN) %>%
@@ -161,6 +162,15 @@ country_geoms <- ne_countries(scale="small", country=countries_to_load, returncl
 
 region_geometries <- rbind(sub_countries, country_geoms)
 save(region_geometries, file="./region_geometries.Rda")
+
+zip_geoms <- geojson_sf("https://data.sfgov.org/resource/favi-qct6.geojson") %>%
+  select(zipcode = zip_code, pop=estimated_2017_acs_population, geometry) %>% 
+  group_by(zipcode, pop) %>% 
+  summarize() %>%
+  mutate(pop = as.numeric(pop)) %>% 
+  ungroup()
+
+save(zip_geoms, file="zip_geoms.Rda")
 ```
 
 ```{r supplement_data,include=F,context="server-start"}
@@ -246,6 +256,8 @@ continental_us <- geometries %>%
   filter(! state %in% c("Alaska", "Hawaii")) %>% 
   ungroup() %>% 
   summarize(us = st_combine(geometry)) 
+
+load("./zip_geoms.Rda")
 ```
 
 ```{r data_jh_and_locations,context="server-start",include=F}
@@ -454,7 +466,7 @@ dataset$nyzipcode <- makePoll("NY Testing by Zipcode",
 url_sfzipcode <- "https://data.sfgov.org/resource/favi-qct6.csv"
 
 process_sfzipcode <- function(x) x %>% 
-  select(date = data_as_of, zipcode=zip_code, cases=count_of_confirmed_cases, pop=estimated_2017_acs_population) %>%
+  select(date = data_as_of, zipcode=zip_code, cases=count_of_confirmed_cases) %>%
   mutate(date = as.Date(date))
 
 dataset$sfzipcode <- makePoll("SF Testing by Zipcode", 
@@ -1743,13 +1755,10 @@ leafletOutput("nyview")
 
 ```{r sfmap_startup,context="server-start",include=F}
 sfzip_geoms <- reactive(
-  zips %>% 
+  zip_geoms %>% 
+    left_join(zips %>% data.frame() %>% select(zipcode, aland10)) %>%
     inner_join(dataset$sfzipcode() %>% mutate(zipcode = as.character(zipcode))) %>% 
     mutate(
-      lat = map(geometry, ~ .[[1]][1]), 
-      lng = map(geometry, ~.[[2]][1]), 
-      lat = unlist(lat), 
-      lng = unlist(lng), 
       rate = cases / pop,
       label = paste0(
         "<font color='blue'>Zipcode: ", zipcode, "</font><br/>",
@@ -1762,7 +1771,7 @@ sfzip_geoms <- reactive(
 
 sf_bbox <- st_bbox(zips %>% filter(str_starts(zipcode, "94")) %>% use_series(geometry))
 sf_centroid <- st_centroid(zips %>% filter(str_starts(zipcode, "94")) %>% use_series(geometry))
-rate_pal <- colorNumeric("Reds", domain=c(0, 1))
+rate_pal <- colorNumeric("Reds", domain=c(0, 1000))
 ```
 
 ```{r sfmap_server,context="server",include=F}
@@ -1771,12 +1780,11 @@ output$sfview <- renderLeaflet({
     addProviderTiles(providers$CartoDB.Positron) %>% 
     setMaxBounds(sf_bbox[1], sf_bbox[2], sf_bbox[3], sf_bbox[4]) %>%
     #setView(lat=sf_centroid[[1]][2], lng=sf_centroid[[1]][1], zoom=10) %>%
-    addLegend(pal=rate_pal, values=c(0, .25, .5, .75, 1), 
+    addLegend(pal=rate_pal, values=c(0, 50, 100, 1000), 
               title="Positive Rate")  %>%
-    addCircles(weight=0, opacity=.3, stroke=F, fill=T, 
+    addPolygons(weight=0, opacity=.3, stroke=F, fill=T, 
                fillOpacity = 0.4, fillColor=~rate_pal(rate), 
-               label=~label,
-               radius = ~(sqrt(cases) * 30)) 
+               label=~label) 
 })
 ```
 

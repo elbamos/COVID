@@ -546,7 +546,12 @@ tagList(
 
 ```
 
-Row {data-height=60}
+Row {data-height=20}
+-----------------------------
+
+The boxes below show the status of the data sources used to power this visualization:
+
+Row {data-height=70}
 -----------------------------
 
 ```{r show_data_status,context="server-start"}
@@ -566,6 +571,8 @@ data_status_box <- function(f, data_name, title) {
   })
 }
 ```
+
+
 
 ### JH Data
 

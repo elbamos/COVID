@@ -461,7 +461,8 @@ url_nyzipcode <- "https://raw.githubusercontent.com/nychealth/coronavirus-data/m
 
 process_nyzipcode <- function(x) x %>% 
   filter(! is.na(MODZCTA)) %>% 
-  rename(zipcode=MODZCTA)
+  rename(zipcode=MODZCTA) %>%
+  select(zipcode, Positive, Total)
 
 dataset$nyzipcode <- makePoll("NY Testing by Zipcode", 
                               url_nyzipcode, 
@@ -1747,7 +1748,10 @@ output$nyview <- renderLeaflet({
     addPolygons(weight=1, opacity=.3, stroke=T, fill=T, 
                 color="blue",
                fillOpacity = 0.4, fillColor=~rate_pal(rate), 
-               label=~label) 
+               label=~label,
+               highlight = highlightOptions(
+        weight=5, fillOpacity=1.0, bringToFront = TRUE
+      )) 
 })
 ```
 
@@ -1787,11 +1791,17 @@ output$sfview <- renderLeaflet({
     addPolygons(weight=.1, opacity=.3, stroke=T, fill=T, 
                 group="Infection Rate", 
                fillOpacity = 0.4, fillColor=~rate_pal(log10(rate)), 
-               label=~label) %>%
+               label=~label,
+               highlight = highlightOptions(
+            weight=5, fillOpacity=1.0, bringToFront = TRUE
+          )) %>%
     addPolygons(weight=.1, opacity=.3, stroke=T, fill=T, 
                 group="Cases",
            fillOpacity = 0.4, fillColor=~cases_pal(log10(cases)), 
-           label=~label) %>%
+           label=~label,
+            highlight = highlightOptions(
+            weight=5, fillOpacity=1.0, bringToFront = TRUE
+          )) %>%
     addLayersControl(baseGroups=c("Infection Rate", "Cases"))
 })
 ```

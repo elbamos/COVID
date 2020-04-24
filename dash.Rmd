@@ -512,7 +512,7 @@ census_data <- get_acs(geography = "county", year = 2015,
 save(census_data, file="census_data.Rda")
 ```
 
-```{r palettes,context="server-start",cache=F,include=F}
+```{r visualization_options,context="server-start",cache=F,include=F}
 palletes <- list(
   # Counts
   cases = "Reds", 
@@ -650,6 +650,57 @@ get_vis_elements <- function(x, label) reactive(label=label, {
     })
 })
 
+```
+
+```{r map_functions,context="server-start",include=F}
+update_map <- function(data, vis_options, map_name) {
+  map <- leafletProxy(data=data, map_name, deferUntilFlush=T) %>%
+    clearShapes() %>% clearMarkers() 
+  
+  for (selection in names(vis_options)) {
+    vis_parts <- vis_options[[selection]]
+    
+    pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
+    
+    map %<>% addPolygons(
+      opacity = 0.7,
+      group = selection,
+      weight = ~ if_else(hot_spot, 2, .1),
+      color = ~ if_else(hot_spot, "red", "blue"),
+      fillColor = ~ pallete(eval(vis_parts$pal)),
+      fillOpacity = 0.7,
+      label = ~popup,
+      highlight = highlightOptions(
+        weight=5, fillOpacity=1.0, bringToFront = TRUE
+      )
+   ) 
+  }
+  
+  map
+}
+
+adjust_legend <- function(map, groups, vis_options) {
+  selection <- groups[1]
+  
+  if (! selection %in% names(vis_options)) {
+    selection <- names(vis_options)[1]
+    showGroup(map, selection)
+  }
+
+  vis_parts <- vis_options[[selection]]
+
+  pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
+  
+  map %>% 
+     addLegend(title=selection, 
+          pal=pallete, 
+          group=selection,
+          values=vis_parts$legend_vals,
+          bins=vis_parts$legend_bins,
+          labFormat=vis_parts$legend_trans, 
+          position="bottomleft"
+     )
+}
 ```
 
 ```{r phony_inputs,eval=F,include=F}
@@ -907,51 +958,12 @@ output$worldview <- renderLeaflet({
 
 sizer <- 2000
 
-adjustWorldMapLegend <- function(map, groups) {
-  selection <- groups[1]
-
-  vis_parts <- isolate(world_vis_options())[[selection]]
-  req(vis_parts)
-
-  pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
-  
-  map %>% 
-     addLegend(title=selection, 
-          pal=pallete, 
-          group=selection,
-          values=vis_parts$legend_vals,
-          bins=vis_parts$legend_bins,
-          labFormat=vis_parts$legend_trans, 
-          position="bottomleft"
-     )
-}
-
 observe(label="update_world_map", {
   polys <- world_polygons() 
   circles <- world_circles() 
   vis_options <- world_vis_options()
-    
-  map <- leafletProxy(data=polys, "worldview", deferUntilFlush=T) %>%
-    clearShapes() %>% clearMarkers() 
   
-  for (selection in names(vis_options)) {
-    vis_parts <- vis_options[[selection]]
-    
-    pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
-    
-    map %<>% addPolygons(
-      opacity = 0.7,
-      group = selection,
-      weight = ~ if_else(hot_spot, 2, .1),
-      color = ~ if_else(hot_spot, "red", "blue"),
-      fillColor = ~ pallete(eval(vis_parts$pal)),
-      fillOpacity = 0.7,
-      label = ~popup,
-      highlight = highlightOptions(
-        weight=5, fillOpacity=1.0, bringToFront = TRUE
-      )
-   ) 
-  }
+  map <- update_map(polys, vis_options, "worldview")
   
   map %>%
     addCircles(group="Confirmed", 
@@ -964,18 +976,20 @@ observe(label="update_world_map", {
   groups <- isolate(input$worldview_groups) 
   if (! is.null(groups)) {
     map %>% clearControls() 
-    adjustWorldMapLegend(map, groups)
+    adjust_legend(map, groups, vis_options)
   }
 })
 
 observeEvent(input$worldview_groups, 
              label="handle_worldmap_legend", {
+  
+  req(world_vis_options)
   map <- leafletProxy('worldview') %>% 
     clearControls() 
   
   selection <- isolate(input$worldview_groups)
   
-  adjustWorldMapLegend(map, selection)
+  adjust_legend(map, selection, world_vis_options())
 })
 ```
 ```{r worldmap_output}
@@ -1250,7 +1264,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
   supplement_rates() %>% 
   supplement_data_for_growth() %>% 
   mutate(
-    label = paste0(
+    popup = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
       "<hr>",
       "Population: ", pop, "<br/>",
@@ -1278,7 +1292,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
       params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>",
       if_else(is.na(county), paste0(params$k, "-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
     ),
-    label = map(label, HTML)
+    popup = map(popup, HTML)
   )
 
 
@@ -1331,70 +1345,28 @@ output$usview <- renderLeaflet({
     setView(lat=uscenter[[1]][2], lng=uscenter[[1]][1], zoom=3) 
 })
 
-adjustUSMapLegend <- function(map, groups) {
-  selection <- groups[1]
-
-  vis_parts <- isolate(us_vis_options())[[selection]]
-  req(vis_parts)
-
-  pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
-  
-  map %>% 
-     addLegend(title=selection, 
-          pal=pallete, 
-          group=selection,
-          values=vis_parts$legend_vals,
-          bins=vis_parts$legend_bins,
-          labFormat=vis_parts$legend_trans, 
-          position="bottomleft"
-     )
-}
-
 observe(label="update_usmap", {
-  map <- leafletProxy("usview", data=us_cases_date_filtered(), deferUntilFlush=T) %>%
-    clearShapes() %>% clearControls()
+  vis_options <- us_vis_options()
   
-  vis <- us_vis_options()
-  scale <- isolate(input$usscale)
-  
-  for (selection in names(vis)) {
-     vis_parts <- vis[[selection]]
-
-     pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
-     
-     map %<>% addPolygons(
-        opacity = shadeOpacity,
-        group = selection,
-        weight = ~ case_when(
-          scale == "State" & hot_spot ~ 2, 
-          hot_spot ~ 1, 
-          TRUE ~ .3
-        ),
-        fillColor = ~ pallete(eval(vis_parts$pal)),
-        fillOpacity = shadeOpacity,
-        color = ~ if_else(hot_spot, "red", "blue"),
-        label = ~label,
-        highlight = highlightOptions(
-          weight=5, fillOpacity=1.0, bringToFront = TRUE
-        )
-     ) 
-  }
+  map <- update_map(us_cases_date_filtered(), vis_options, "usview")
 
   map %<>%
-      addLayersControl(baseGroups = names(vis))
+      addLayersControl(baseGroups = names(vis_options))
   
   groups <- isolate(input$usview_groups) 
-  if (! is.null(groups)) adjustUSMapLegend(map, groups)
+  if (! is.null(groups)) adjust_legend(map, groups, vis_options)
 })
 
 observeEvent(input$usview_groups, 
              label="handle_usmap_legend", {
+  
+  req(us_vis_options)
   map <- leafletProxy('usview') %>% 
     clearControls() 
   
   selection <- isolate(input$usview_groups)
   
-  adjustUSMapLegend(map, selection)
+  adjust_legend(map, selection, us_vis_options())
 })
 ```
 
@@ -1729,9 +1701,17 @@ rate_pal <- colorNumeric(palletes$rate, domain=log10(c(1, 1000)))
 cases_pal <- colorNumeric(palletes$cases, domain=log10(c(1, 1000)))
 ```
 
+
+```{r sfmap_data,context="server-start",include=F}
+sf_map_data <- reactive(sfzip_geoms() %>% filter(date == max(date)))
+
+sf_vis_options <- get_vis_elements(sf_map_data, "sf_vis_options")
+```
+
+
 ```{r sfmap_server,context="server",include=F}
 output$sfview <- renderLeaflet({
-  leaflet(sfzip_geoms() %>% filter(date == max(date))) %>% 
+  leaflet(sf_map_data()) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>% 
     setMaxBounds(sf_bbox[1], sf_bbox[2], sf_bbox[3], sf_bbox[4]) %>%
     addPolygons(weight=.1, opacity=.3, stroke=T, fill=T, 

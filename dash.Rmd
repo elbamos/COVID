@@ -896,14 +896,6 @@ world_cases <- reactive({
   todisplay %>% 
     inner_join(locations) %>%
     ungroup() %>% 
-    select(
-      lat, lng, Sublocation, Subsublocation, Location, loc_id,
-      cases, deaths, 
-      new_dead, new_confirmed, new_cases_ma, recovered, 
-      cases_growth_rate, cases_growth_rate_ma,
-      active_cases, active_case_growth, active_case_growth_rate, active_case_growth_rate_ma,
-      hot_spot
-      ) %>% 
     mutate(
       popup=paste0('<font color="blue">', 
                    case_when(

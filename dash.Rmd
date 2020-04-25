@@ -650,16 +650,16 @@ get_vis_elements <- function(x, label) reactive(label=label, {
 ```
 
 ```{r map_functions,context="server-start",include=F}
-update_map <- function(data, vis_options, map_name, input) {
-  map <- leafletProxy(data=data, map_name, deferUntilFlush=T) %>%
-    clearShapes() %>% clearMarkers() 
+update_map <- function(map, vis_options, map_name, input) {
+  map %<>% clearShapes() %>% clearMarkers()
   
   for (selection in names(vis_options)) {
     vis_parts <- vis_options[[selection]]
     
     pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
     
-    map %<>% addPolygons(
+    map %<>% 
+      addPolygons(
       opacity = 0.7,
       group = selection,
       weight = ~ if_else(hot_spot, 2, .1),
@@ -958,7 +958,8 @@ observe(label="update_world_map", {
   circles <- world_circles() 
   vis_options <- world_vis_options()
   
-  map <- update_map(polys, vis_options, "worldview", input)
+  map <- leafletProxy(data=polys, "worldview", deferUntilFlush=T) %>%
+    update_map(vis_options, "worldview", input)
   
   map %>%
     addCircles(group="Confirmed", 
@@ -1339,7 +1340,8 @@ output$usview <- renderLeaflet({
 observe(label="update_usmap", {
   vis_options <- us_vis_options()
   
-  map <- update_map(us_cases_date_filtered(), vis_options, "usview", input)
+  map <- leafletProxy(data=us_cases_date_filtered(), "usview", deferUntilFlush=T) %>%
+    update_map(vis_options, "usview", input)
 
   map %<>%
       addLayersControl(baseGroups = names(vis_options))
@@ -1691,7 +1693,7 @@ sfzip_geoms <- reactive(
 ```{r sfmap_data,context="server",include=F}
 sf_map_data <- reactive(sfzip_geoms() %>% filter(date == max(date)))
 
-sf_vis_options <- get_vis_elements(sf_map_data, "sf_vis_options")
+sf_vis_options <- get_vis_elements(sfzip_geoms, "sf_vis_options")
 ```
 
 
@@ -1706,18 +1708,21 @@ output$sfview <- renderLeaflet({
   sf_bbox <- map_data %>% use_series(geometry) %>% st_bbox()
   sf_center <- map_data %>% use_series(geometry) %>% st_centroid()
   
-  leaflet() %>% 
+  map <- leaflet(map_data) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
     addLayersControl(baseGroups = names(vis_options))  %>% 
     setMaxBounds(sf_bbox[[1]], sf_bbox[[2]], sf_bbox[[3]], sf_bbox[[4]]) %>% 
-    setView(lat=sf_center[[1]][2], lng=sf_center[[1]][1], zoom=12) 
+    setView(lat=sf_center[[1]][2], lng=sf_center[[1]][1], zoom=12) %>% 
+    update_map(vis_options, "sfview", input)
 })
 
 observe(label="update_sfmap", {
   req(sf_vis_options)
   req(sf_map_data)
   vis_options <- sf_vis_options()
-  map <- update_map(sf_map_data(), vis_options, "sfview", input)
+  
+  leafletProxy(data=sf_map_data(), "worldview", deferUntilFlush=T) %>% 
+    update_map(vis_options, "sfview", input)
 })
 
 observeEvent(input$sfview_groups, 

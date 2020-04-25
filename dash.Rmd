@@ -473,18 +473,15 @@ url_sfzipcode <- "https://data.sfgov.org/resource/favi-qct6.csv"
 
 process_sfzipcode <- function(x) x %>% 
   select(date = data_as_of, zipcode=zip_code, cases=count_of_confirmed_cases) %>%
-  mutate(date = as.Date(date))
+  mutate(
+    date = as.Date(date),
+    recovered = NA,
+    deaths = NA
+  )
 
 dataset$sfzipcode <- makePoll("SF Testing by Zipcode", 
                               url_sfzipcode, 
                               process_sfzipcode)
-reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
-  checkFunc = function() get_url_date(url_sfzipcode),
-  valueFunc = function() get_new_data_json(tag="SF Testing by Zipcode", 
-                                           url=url_sfzipcode, 
-                                           f=process_sfzipcode)
-)
 ```
 
 ```{r pull_census,context="data",include=F,eval=F}
@@ -1675,52 +1672,65 @@ leafletOutput("nyview")
 sfzip_geoms <- reactive(
   zip_geoms %>% 
     left_join(zips %>% data.frame() %>% select(zipcode, aland10)) %>%
-    inner_join(dataset$sfzipcode() %>% mutate(zipcode = as.character(zipcode))) %>% 
+    inner_join(dataset$sfzipcode() %>% 
+                 mutate(zipcode = as.character(zipcode)) 
+               ) %>% 
+    supplement_data_for_growth() %>% 
     mutate(
       rate = (cases / pop) * 100000,
-      label = paste0(
+      popup = paste0(
         "<font color='blue'>Zipcode: ", zipcode, "</font><br/>",
         "Cases: ", cases, " / ", pop, 
         "<br/>Infection rate: ", round(rate), " / 100,000ppl"
       ),
-      label = map(label, HTML)
+      popup = map(popup, HTML)
     )
 )
-
-sf_bbox <- st_bbox(zips %>% filter(str_starts(zipcode, "94")) %>% use_series(geometry))
-sf_centroid <- st_centroid(zips %>% filter(str_starts(zipcode, "94")) %>% use_series(geometry))
-rate_pal <- colorNumeric(palletes$rate, domain=log10(c(1, 1000)))
-cases_pal <- colorNumeric(palletes$cases, domain=log10(c(1, 1000)))
 ```
 
 
-```{r sfmap_data,context="server-start",include=F}
+```{r sfmap_data,context="server",include=F}
 sf_map_data <- reactive(sfzip_geoms() %>% filter(date == max(date)))
 
 sf_vis_options <- get_vis_elements(sf_map_data, "sf_vis_options")
 ```
 
 
-```{r sfmap_server,context="server",include=F}
+```{r sfmap_map,context="server",include=F}
 output$sfview <- renderLeaflet({
-  leaflet(sf_map_data()) %>% 
-    addProviderTiles(providers$CartoDB.Positron) %>% 
-    setMaxBounds(sf_bbox[1], sf_bbox[2], sf_bbox[3], sf_bbox[4]) %>%
-    addPolygons(weight=.1, opacity=.3, stroke=T, fill=T, 
-                group="Infection Rate", 
-               fillOpacity = 0.4, fillColor=~rate_pal(log10(rate)), 
-               label=~label,
-               highlight = highlightOptions(
-            weight=5, fillOpacity=1.0, bringToFront = TRUE
-          )) %>%
-    addPolygons(weight=.1, opacity=.3, stroke=T, fill=T, 
-                group="Cases",
-           fillOpacity = 0.4, fillColor=~cases_pal(log10(cases)), 
-           label=~label,
-            highlight = highlightOptions(
-            weight=5, fillOpacity=1.0, bringToFront = TRUE
-          )) %>%
-    addLayersControl(baseGroups=c("Infection Rate", "Cases"))
+  req(sf_map_data)
+  req(sf_vis_options)
+  
+  map_data <- isolate(sf_map_data())
+  vis_options <- isolate(sf_vis_options())
+  
+  sf_bbox <- map_data %>% use_series(geometry) %>% st_bbox()
+  sf_center <- map_data %>% use_series(geometry) %>% st_centroid()
+  
+  leaflet() %>% 
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addLayersControl(baseGroups = names(vis_options))  %>% 
+    setMaxBounds(sf_bbox[[1]], sf_bbox[[2]], sf_bbox[[3]], sf_bbox[[4]]) %>% 
+    setView(lat=sf_center[[1]][2], lng=sf_center[[1]][1], zoom=12) 
+})
+
+observe(label="update_sfmap", {
+  req(sf_vis_options)
+  req(sf_map_data)
+  vis_options <- sf_vis_options()
+  map <- update_map(sf_map_data(), vis_options, "sfview", input)
+})
+
+observeEvent(input$sfview_groups, 
+             label="handle_sfmap_legend", {
+  
+  req(sf_vis_options)
+  map <- leafletProxy('sfview') %>% 
+    clearControls() 
+  
+  selection <- isolate(input$sfview_groups)
+  
+  adjust_legend(map, selection, sf_vis_options())
 })
 ```
 

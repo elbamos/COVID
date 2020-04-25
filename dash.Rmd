@@ -650,7 +650,7 @@ get_vis_elements <- function(x, label) reactive(label=label, {
 ```
 
 ```{r map_functions,context="server-start",include=F}
-update_map <- function(data, vis_options, map_name) {
+update_map <- function(data, vis_options, map_name, input) {
   map <- leafletProxy(data=data, map_name, deferUntilFlush=T) %>%
     clearShapes() %>% clearMarkers() 
   
@@ -673,6 +673,11 @@ update_map <- function(data, vis_options, map_name) {
    ) 
   }
   
+  groups <- isolate(input[[paste0(map_name, "_groups")]]) 
+  if (! is.null(groups)) {
+    map %<>% adjust_legend(groups, vis_options)
+  }
+  
   map
 }
 
@@ -689,6 +694,7 @@ adjust_legend <- function(map, groups, vis_options) {
   pallete <- colorNumeric(vis_parts$pallete, domain=vis_parts$legend_vals)
   
   map %>% 
+     clearControls() %>%
      addLegend(title=selection, 
           pal=pallete, 
           group=selection,
@@ -952,7 +958,7 @@ observe(label="update_world_map", {
   circles <- world_circles() 
   vis_options <- world_vis_options()
   
-  map <- update_map(polys, vis_options, "worldview")
+  map <- update_map(polys, vis_options, "worldview", input)
   
   map %>%
     addCircles(group="Confirmed", 
@@ -961,12 +967,6 @@ observe(label="update_world_map", {
                color="Blue", 
                radius = ~(sqrt(cases) * sizer),
                label=~popup)
-  
-  groups <- isolate(input$worldview_groups) 
-  if (! is.null(groups)) {
-    map %>% clearControls() 
-    adjust_legend(map, groups, vis_options)
-  }
 })
 
 observeEvent(input$worldview_groups, 
@@ -1316,14 +1316,16 @@ us_cases_date_filtered <- reactive({
 ```{r usmap_vis_elements,context="server",include=F}
 shadeWeight <- 0.1
 shadeOpacity <- 0.7
-usbox <- st_bbox(continental_us$us)
-uscenter <- st_centroid(continental_us$us)
+
 
 us_vis_options <- get_vis_elements(us_cases_state_county, "us_vis_options")
 ```
 
 ```{r usmap,context="server",include=F}
 output$usview <- renderLeaflet({
+  usbox <- st_bbox(continental_us$us)
+  uscenter <- st_centroid(continental_us$us)
+  
   leaflet(
     options=leafletOptions(
       minZoom=3
@@ -1337,13 +1339,10 @@ output$usview <- renderLeaflet({
 observe(label="update_usmap", {
   vis_options <- us_vis_options()
   
-  map <- update_map(us_cases_date_filtered(), vis_options, "usview")
+  map <- update_map(us_cases_date_filtered(), vis_options, "usview", input)
 
   map %<>%
       addLayersControl(baseGroups = names(vis_options))
-  
-  groups <- isolate(input$usview_groups) 
-  if (! is.null(groups)) adjust_legend(map, groups, vis_options)
 })
 
 observeEvent(input$usview_groups, 

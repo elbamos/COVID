@@ -183,7 +183,8 @@ save(zip_geoms, file="zip_geoms.Rda")
 ```{r supplement_data,include=F,context="server-start"}
 supplement_data_for_growth <- function(x) x %>% 
   mutate(
-    cases_new= cases - lag(cases, 1, default = 0),
+    rate = round((cases / pop) * 100000),
+    cases_new = cases - lag(cases, 1, default = 0),
     cases_growth_rate = case_when(
       cases_new == 0 ~ 0, 
       lag(cases, 1) == 0 ~ .1, 
@@ -340,7 +341,8 @@ world_cases_jh <- reactive({
     arrange(date) %>%
     mutate(
       new_dead = deaths - lag(deaths, 1, default=0),
-      new_confirmed = cases - lag(cases, 1, default=0)
+      new_confirmed = cases - lag(cases, 1, default=0), 
+      pop = NA, # Find pop later for more data!
     ) %>% 
     supplement_data_for_growth() 
 })
@@ -1218,13 +1220,11 @@ Row
 ```{r make_us_cases,context="server-start",include=F}
 supplement_rates <- function(x) x %>% 
   mutate(
-    rate = round((cases / pop) * 1e5),
     pos_rate = cases / (cases + negative),
     penetrance = cases / housing_units,
     hosp_rate = hospitalized / cases, 
     icu_rate = icu / hospitalized, 
     vent_rate = vent / icu,
-
   )
 
 make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %>%
@@ -1315,10 +1315,6 @@ us_cases_date_filtered <- reactive({
 ```
 
 ```{r usmap_vis_elements,context="server",include=F}
-shadeWeight <- 0.1
-shadeOpacity <- 0.7
-
-
 us_vis_options <- get_vis_elements(us_cases_state_county, "us_vis_options")
 ```
 
@@ -1676,17 +1672,30 @@ sfzip_geoms <- reactive(
     inner_join(dataset$sfzipcode() %>% 
                  mutate(zipcode = as.character(zipcode)) 
                ) %>% 
+    mutate(
+      landsqmi = aland10 / 2591646,
+      pop_density = pop / landsqmi,
+    ) %>% 
     supplement_data_for_growth() %>% 
     mutate(
       rate = (cases / pop) * 100000,
       popup = paste0(
         "<font color='blue'>Zipcode: ", zipcode, "</font><br/>",
-        "Cases: ", cases, " / ", pop, 
-        "<br/>Infection rate: ", round(rate), " / 100,000ppl"
+        "Cases: ", cases, " / ", pop, " population<br/>", 
+        "Infection rate: ", round(rate), " / 100,000 ppl<br/>",
+        "Density: ", round(pop_density), " ppl / sqmi<br/>",
+        "<hr>",
+        "New Cases: ", cases_new, "<br/>",
+        "Growth: ", round(cases_growth_rate, 3), " d/d<br/>",
+        params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
+        params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>"
       ),
       popup = map(popup, HTML)
     )
 )
+
+
+
 ```
 
 

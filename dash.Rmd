@@ -457,16 +457,62 @@ dataset$interventions <- makePoll("Interventions", url_interventions,
 ```
 
 ```{r data_nyhealth,context="server-start",include=F}
+library(rvest)
+
 url_nyzipcode <- "https://raw.githubusercontent.com/nychealth/coronavirus-data/master/tests-by-zcta.csv"
 
 process_nyzipcode <- function(x) x %>% 
   filter(! is.na(MODZCTA)) %>% 
   rename(zipcode=MODZCTA) %>%
-  select(zipcode, Positive, Total)
+  select(zipcode, Positive, Total, date) 
 
-dataset$nyzipcode <- makePoll("NY Testing by Zipcode", 
-                              url_nyzipcode, 
-                              process_nyzipcode)
+get_one_ny_day <- function(commit, date) read_csv(
+  paste0(
+    "https://raw.githubusercontent.com/nychealth/coronavirus-data/",
+    commit, "/tests-by-zcta.csv"
+    )
+  ) %>%
+  mutate(date = date)
+
+scrape_ny <- function() {
+  commits <- read_html("https://github.com/nychealth/coronavirus-data/commits/master/tests-by-zcta.csv")
+  
+  dates <- commits %>%
+    html_nodes(".commit-group-title") %>% 
+    html_text() %>%
+    str_match("Commits on ([A-Za-z]+)\\s([0-9]+),\\s2020") %>%
+    data.frame() %>%
+    set_colnames(c("all", "month", "day")) %>%
+    select(-all) %>% 
+    mutate(date = mdy(paste(month, day, "2020")))
+  
+  commits %>% 
+    html_nodes(".commit-title>a") %>%
+    html_attr("href") %>%
+    str_match("commit/([a-f0-9]+)#diff") %>%
+    data.frame() %>%
+    set_colnames(c("toss", "commit")) %>%
+    select(-toss) %>% 
+    bind_cols(dates) %>% 
+    mutate(
+      data = map2(commit, date, ~get_one_ny_day(.x, .y))
+    ) %>%
+    use_series(data) %>%
+    bind_rows() 
+}
+
+get_ny_data <- function(tag, f) {
+  out <- scrape_ny() %>% 
+    f()
+  update_dataset_dt_url(tag, url_nyzipcode)
+  out 
+}
+
+dataset$nyzipcode <- reactivePoll(
+  intervalMillis = updateFreq, session = NULL, 
+  checkFunc = function() get_url_date(url_nyzipcode), 
+  valueFunc = function() get_ny_data("NY Testing by Zipcode", process_nyzipcode)
+)
 ```
 
 

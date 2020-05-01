@@ -171,11 +171,19 @@ zip_geoms <- geojson_sf("https://data.sfgov.org/resource/favi-qct6.geojson") %>%
   ungroup() %>%
   st_transform(crs=st_crs(chn))
 
+alameda <- geojson_sf("https://opendata.arcgis.com/datasets/55a1734dba614a60b2b81f2fde6c4c0b_0.geojson") %>%
+  select(
+    pop = `POPULATION`, 
+    zipcode = ZIP_CODE
+  ) %>%
+  st_transform(crs=st_crs(chn))
+  
+
 ny_zip_geoms <- st_read("./Shapes/nyzipcodes/ZIP_CODE_040114.shp") %>%
   select(zipcode = ZIPCODE, geometry, pop=POPULATION) %>%
   st_transform(crs=st_crs(chn))
 
-zip_geoms %<>% rbind(ny_zip_geoms)
+zip_geoms %<>% rbind(ny_zip_geoms) %>% rbind(alameda)
 
 save(zip_geoms, file="zip_geoms.Rda")
 ```
@@ -531,6 +539,26 @@ process_sfzipcode <- function(x) x %>%
 dataset$sfzipcode <- makePoll("SF Testing by Zipcode", 
                               url_sfzipcode, 
                               process_sfzipcode)
+
+url_alameda <- "https://services3.arcgis.com/1iDJcsklY3l3KIjE/arcgis/rest/services/Alameda_County_COVID-19_Zip_Code_Data/FeatureServer/0/query?where=1%3D1&outFields=Zip,Count&outSR=4326&f=json"
+
+process_alameda <- function(x) x$features$attributes %>% 
+  set_colnames(c("zipcode", "cases")) %>%
+  mutate(
+    cases = case_when(
+      str_starts(cases, "<") ~ 10, 
+      TRUE ~ as.numeric(cases)
+    ),
+    date = Sys.Date()
+  )
+
+dataset$alameda <- reactivePoll(
+  intervalMillis = updateFreq, session=NULL,
+  checkFunc = function() get_url_date(url_alameda),
+  valueFunc = function() get_new_data_json(tag="Alameda", 
+                                           url=url_alameda, 
+                                           f=process_alameda)
+)
 ```
 
 ```{r pull_census,context="data",include=F,eval=F}
@@ -1157,7 +1185,7 @@ output$dailynewcases <- renderHighchart({
       type = "column",
       mapping = hcaes(x = date, y = New),
       data = world_case_summary() %>%
-        select(date, New = new_confirmed),
+        select(date, New = cases_new),
       name = "New Cases"
     ) %>%
     hc_add_series(
@@ -1675,7 +1703,8 @@ city_combined <- reactive(
     inner_join(
       bind_rows(
         dataset$nyzipcode(),
-        dataset$sfzipcode()
+        dataset$sfzipcode(),
+        dataset$alameda()
       ) %>% 
         mutate(zipcode = as.character(zipcode)) 
     ) %>% 
@@ -1691,6 +1720,7 @@ city_combined <- reactive(
       )
     ) %>%
     supplement_data_for_growth() %>% 
+    filter(cases > 0) %>% 
     mutate(
       rate = (cases / pop) * 100000,
       popup = paste0(
@@ -1767,7 +1797,7 @@ city_vis_options <- get_vis_elements(city_data_over_time,
 city_data <- reactive({
   req(input$citydate)
   city_data_over_time() %>% 
-    filter(date == max(date)) %>% # input$citydate) 
+    filter(date == max(date)) # input$citydate) 
 })
 ```
 

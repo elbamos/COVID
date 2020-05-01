@@ -340,8 +340,8 @@ world_cases_jh <- reactive({
     ) %>%
     arrange(date) %>%
     mutate(
-      new_dead = deaths - lag(deaths, 1, default=0),
-      new_confirmed = cases - lag(cases, 1, default=0), 
+      deaths_new = deaths - lag(deaths, 1, default=0),
+      cases_new = cases - lag(cases, 1, default=0), 
       pop = NA, # Find pop later for more data!
     ) %>% 
     supplement_data_for_growth() 
@@ -464,7 +464,8 @@ url_nyzipcode <- "https://raw.githubusercontent.com/nychealth/coronavirus-data/m
 process_nyzipcode <- function(x) x %>% 
   filter(! is.na(MODZCTA)) %>% 
   rename(zipcode=MODZCTA) %>%
-  select(zipcode, Positive, Total, date) 
+  select(zipcode, cases=Positive, total_tests=Total, date) %>%
+  mutate(recovered = NA, deaths=NA)
 
 get_one_ny_day <- function(commit, date) read_csv(
   paste0(
@@ -1662,66 +1663,33 @@ highchartOutput("ustestingbystateinc")
 Cities 
 ===================================================
 
-Row {.tabset}
------------------------------------------
+Inputs {.sidebar}
+-----------------------------------------------------------------------
 
-### New York City
+### Input
 
-```{r nymap_startup,context="server-start",include=F}
-nyzip_geoms <- reactive(
+```{r city_combined_data,context="server-start",include=F}
+city_combined <- reactive(
   zip_geoms %>% 
     left_join(zips %>% data.frame() %>% select(zipcode, aland10)) %>%
-    inner_join(dataset$nyzipcode() %>% mutate(zipcode=as.character(zipcode))) %>% 
+    inner_join(
+      bind_rows(
+        dataset$nyzipcode(),
+        dataset$sfzipcode()
+      ) %>% 
+        mutate(zipcode = as.character(zipcode)) 
+    ) %>% 
+    group_by(zipcode) %>%
+    arrange(date) %>% 
     mutate(
-      rate = Positive / Total,
-      label = paste0(
-        "<font color='blue'>Zipcode: ", zipcode, "</font><br/>",
-        "Positive Tests: ", Positive, " / ", Total
-      ),
-      label = map(label, HTML)
-    )
-)
-
-ny_bbox <- st_bbox(zips %>% filter(! str_starts(zipcode, "94")) %>% use_series(geometry))
-ny_centroid <- st_centroid(zips %>% filter(! str_starts(zipcode, "94")) %>% use_series(geometry))
-rate_pal <- colorNumeric("Reds", domain=c(0, 1))
-```
-
-```{r nymap_server,context="server",include=F}
-output$nyview <- renderLeaflet({
-  leaflet(nyzip_geoms()) %>% 
-    addProviderTiles(providers$CartoDB.Positron) %>% 
-    setMaxBounds(ny_bbox[1], ny_bbox[2], ny_bbox[3], ny_bbox[4]) %>%
-    setView(lat=ny_centroid[[1]][2], lng=ny_centroid[[1]][1], zoom=10) %>%
-    addLegend(pal=rate_pal, values=c(0, .25, .5, .75, 1), 
-              title="Positive Rate")  %>%
-    addPolygons(weight=1, opacity=.3, stroke=T, fill=T, 
-                color="blue",
-               fillOpacity = 0.4, fillColor=~rate_pal(rate), 
-               label=~label,
-               highlight = highlightOptions(
-        weight=5, fillOpacity=1.0, bringToFront = TRUE
-      )) 
-})
-```
-
-```{r nymap_output}
-leafletOutput("nyview")
-```
-
-### San Francisco
-
-```{r sfmap_startup,context="server-start",include=F}
-sfzip_geoms <- reactive(
-  zip_geoms %>% 
-    left_join(zips %>% data.frame() %>% select(zipcode, aland10)) %>%
-    inner_join(dataset$sfzipcode() %>% 
-                 mutate(zipcode = as.character(zipcode)) 
-               ) %>% 
-    mutate(
+      cases_new = cases - lag(cases, 1, default=0),
       landsqmi = aland10 / 2591646,
       pop_density = pop / landsqmi,
-    ) %>% 
+      city = case_when(
+        str_starts(zipcode, "94") ~ "San Francisco", 
+        TRUE ~ "New York"
+      )
+    ) %>%
     supplement_data_for_growth() %>% 
     mutate(
       rate = (cases / pop) * 100000,
@@ -1739,62 +1707,121 @@ sfzip_geoms <- reactive(
       popup = map(popup, HTML)
     )
 )
-
-
-
 ```
 
-
-```{r sfmap_data,context="server",include=F}
-sf_map_data <- reactive(sfzip_geoms() %>% filter(date == max(date)))
-
-sf_vis_options <- get_vis_elements(sfzip_geoms, "sf_vis_options")
+```{r city_input,context="server",include=F}
+output$cityinputs <- renderUI({
+  cases <- city_combined()
+  
+  tagList(
+    sliderInput(
+      "citydate",
+      "Date",
+      min =  min(cases$date),
+      max = max(cases$date),
+      value = max(cases$date),
+      timeFormat = "%Y-%m-%d",
+      animate = T
+    ),
+    radioGroupButtons(
+      "cityselection", 
+      label="Choose City", 
+      choices=sort(unique(cases$city)), 
+      selected = "New York",
+      individual = TRUE, 
+      #status = "info", 
+      checkIcon = list(
+        yes = tags$i(
+          class = "fa fa-circle", 
+          style = "color: steelblue"
+        ),
+        no = tags$i(
+          class = "fa fa-circle-o", 
+          style = "color: steelblue"
+        )
+      )
+    )
+  )
+})
+```
+```{r city_input_output}
+#radioButtons("worlduslevel", "US Detail", choices=c("Country", "State", "County"), selected="State")
+uiOutput("cityinputs")
 ```
 
+Row 
+-----------------------------------------
 
-```{r sfmap_map,context="server",include=F}
-output$sfview <- renderLeaflet({
-  req(sf_map_data)
-  req(sf_vis_options)
+```{r city_data,context="server",include=F}
+city_data_over_time <- reactive({
+  req(input$cityselection)
   
-  map_data <- isolate(sf_map_data())
-  vis_options <- isolate(sf_vis_options())
+  city_combined() %>%
+    filter(city == input$cityselection) %>% 
+    glimpse()
+})
+
+city_vis_options <- get_vis_elements(city_data_over_time,
+                                     "city_vis_options")
+
+city_data <- reactive({
+  req(input$citydate)
+  city_data_over_time() %>% 
+    filter(date == max(date)) %>% # input$citydate) 
+})
+```
+
+### City View
+
+```{r city_map,context="server",include=F}
+output$cityview <- renderLeaflet({
+  req(city_vis_options)
+  req(city_data_over_time)
+  req(city_data)
   
-  sf_bbox <- map_data %>% use_series(geometry) %>% st_bbox()
-  sf_center <- map_data %>% use_series(geometry) %>% st_centroid()
+  geoms <- city_data_over_time() %>%
+    group_by(zipcode) %>%
+    filter(row_number() == 1) %>%
+    ungroup() %>% 
+    use_series(geometry)
   
-  map <- leaflet(map_data) %>% 
+  bbox = st_bbox(geoms)
+  centroid = st_bbox(geoms)
+  
+  vis_options <- isolate(city_vis_options())
+
+  map <- leaflet(isolate(city_data())) %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
     addLayersControl(baseGroups = names(vis_options))  %>% 
-    setMaxBounds(sf_bbox[[1]], sf_bbox[[2]], sf_bbox[[3]], sf_bbox[[4]]) %>% 
-    setView(lat=sf_center[[1]][2], lng=sf_center[[1]][1], zoom=12) %>% 
-    update_map(vis_options, "sfview", input)
+   # setMaxBounds(bbox[[1]], bbox[[2]], bbox[[3]], bbox[[4]]) %>% 
+    #setView(lat=centroid[[1]][2], lng=centroid[[1]][1], zoom=12) %>% 
+    update_map(vis_options, "cityview", input)
 })
 
-observe(label="update_sfmap", {
-  req(sf_vis_options)
-  req(sf_map_data)
-  vis_options <- sf_vis_options()
+observe(label="update_citymap", {
+  req(city_vis_options)
+  req(city_data)
+  vis_options <- city_vis_options()
   
-  leafletProxy(data=sf_map_data(), "worldview", deferUntilFlush=T) %>% 
-    update_map(vis_options, "sfview", input)
+  leafletProxy(data=city_data(), "cityview", deferUntilFlush=T) %>% 
+    update_map(vis_options, "cityview", input)
 })
 
-observeEvent(input$sfview_groups, 
-             label="handle_sfmap_legend", {
+observeEvent(input$cityview_groups, 
+             label="handle_citymap_legend", {
   
-  req(sf_vis_options)
-  map <- leafletProxy('sfview') %>% 
+  req(city_vis_options)
+  map <- leafletProxy('cityview') %>% 
     clearControls() 
   
-  selection <- isolate(input$sfview_groups)
+  selection <- isolate(input$cityview_groups)
   
-  adjust_legend(map, selection, sf_vis_options())
+  adjust_legend(map, selection, city_vis_options())
 })
 ```
 
-```{r sfmap_output}
-leafletOutput("sfview")
+```{r citymap_output}
+leafletOutput("cityview")
 ```
 
 

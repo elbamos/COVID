@@ -1885,8 +1885,7 @@ interventions_with_cases <- reactive({
   
   locs_with_intervention <- interventions %>% group_by(loc_id) %>% summarize()
   
-  us_cases_with_geo() %>%
-    select(-geometry) %>% 
+  us_cases_all() %>%
     semi_join(locs_with_intervention) %>%
     left_join(interventions) %>%
     mutate(name = paste0(county, ", ", state))

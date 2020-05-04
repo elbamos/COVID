@@ -508,63 +508,15 @@ dataset$interventions <- makePoll("Interventions", url_interventions,
 ```
 
 ```{r data_nyhealth,context="server-start",include=F}
-library(rvest)
-
 url_nyzipcode <- "https://raw.githubusercontent.com/nychealth/coronavirus-data/master/tests-by-zcta.csv"
 
 process_nyzipcode <- function(x) x %>% 
   filter(! is.na(MODZCTA)) %>% 
-  rename(zipcode=MODZCTA) %>%
-  select(zipcode, cases=Positive, total_tests=Total, date) %>%
-  mutate(recovered = NA, deaths=NA)
+  select(zipcode=MODZCTA, cases=Positive, total_tests=Total) %>%
+  mutate(recovered = NA, deaths=NA, date=Sys.Date())
 
-get_one_ny_day <- function(commit, date) read_csv(
-  paste0(
-    "https://raw.githubusercontent.com/nychealth/coronavirus-data/",
-    commit, "/tests-by-zcta.csv"
-    )
-  ) %>%
-  mutate(date = date)
 
-scrape_ny <- function() {
-  commits <- read_html("https://github.com/nychealth/coronavirus-data/commits/master/tests-by-zcta.csv")
-  
-  dates <- commits %>%
-    html_nodes(".commit-group-title") %>% 
-    html_text() %>%
-    str_match("Commits on ([A-Za-z]+)\\s([0-9]+),\\s2020") %>%
-    data.frame() %>%
-    set_colnames(c("all", "month", "day")) %>%
-    select(-all) %>% 
-    mutate(date = mdy(paste(month, day, "2020")))
-  
-  commits %>% 
-    html_nodes(".commit-title>a") %>%
-    html_attr("href") %>%
-    str_match("commit/([a-f0-9]+)#diff") %>%
-    data.frame() %>%
-    set_colnames(c("toss", "commit")) %>%
-    select(-toss) %>% 
-    bind_cols(dates) %>% 
-    mutate(
-      data = map2(commit, date, ~get_one_ny_day(.x, .y))
-    ) %>%
-    use_series(data) %>%
-    bind_rows() 
-}
-
-get_ny_data <- function(tag, f) {
-  out <- scrape_ny() %>% 
-    f()
-  update_dataset_dt_url(tag, url_nyzipcode)
-  out 
-}
-
-dataset$nyzipcode <- reactivePoll(
-  intervalMillis = updateFreq, session = NULL, 
-  checkFunc = function() get_url_date(url_nyzipcode), 
-  valueFunc = function() get_ny_data("NY Testing by Zipcode", process_nyzipcode)
-)
+dataset$nyzipcode <- makePoll("NYC Testing by Zipcode", url_nyzipcode, process_nyzipcode)
 ```
 
 
@@ -826,17 +778,20 @@ adjust_legend <- function(map, groups, vis_options) {
 }
 ```
 
-```{r phony_inputs,eval=F,include=F}
+```{r phony_inputs,include=F}
 # This is used during testing so that reactive expressions that depend on input can function
+if (! exists("input")) {
+  input <- list(
+    worlddate = Sys.Date() - 1, 
+    usdate = Sys.Date() - 1, 
+    worldscale = "linear", 
+    worldmincases = 1,
+    cityselection = "New York"
+  )
+  
+  output <- list()
+}
 
-input <- list(
-  worlddate = Sys.Date() - 1, 
-  usdate = Sys.Date() - 1, 
-  worldscale = "linear", 
-  worldmincases = 1
-)
-
-output <- list()
 ```
 
 Introduction 
@@ -1706,24 +1661,25 @@ Inputs {.sidebar}
 ### Input
 
 ```{r city_combined_data,context="server-start",include=F}
-city_combined <- reactive(
-  zip_geoms %>% 
-    left_join(zips %>% data.frame() %>% select(zipcode, aland10)) %>%
-    inner_join(
-      bind_rows(
-        dataset$nyzipcode(),
-        dataset$sfzipcode(),
-        dataset$alameda()
-      ) %>% 
-        mutate(
-          zipcode = as.character(zipcode),
-          negative = NA_real_, 
-          housing_units = NA_real_,
-          hospitalized = NA_real_, 
-          icu = NA_real_, 
-          vent = NA_real_
-        ) 
+zips_with_pop <- zip_geoms %>% data.frame() %>% 
+  select(zipcode, pop) %>%
+  left_join(zips %>% data.frame() %>% select(zipcode, aland10))
+
+city_combined <- reactive({
+  bind_rows(
+    dataset$nyzipcode(),
+    dataset$sfzipcode(),
+    dataset$alameda()
+  ) %>% 
+    mutate(
+      zipcode = as.character(zipcode),
+      negative = NA_real_, 
+      housing_units = NA_real_,
+      hospitalized = NA_real_, 
+      icu = NA_real_, 
+      vent = NA_real_
     ) %>% 
+    left_join(zips_with_pop) %>% 
     group_by(zipcode) %>%
     arrange(date) %>% 
     mutate(
@@ -1749,8 +1705,9 @@ city_combined <- reactive(
         growth_rates
       ),
       popup = map(popup, HTML)
-    )
-)
+    ) %>% 
+    ungroup() 
+})
 ```
 
 ```{r city_input,context="server",include=F}
@@ -1758,15 +1715,6 @@ output$cityinputs <- renderUI({
   cases <- city_combined()
   
   tagList(
-    sliderInput(
-      "citydate",
-      "Date",
-      min =  min(cases$date),
-      max = max(cases$date),
-      value = max(cases$date),
-      timeFormat = "%Y-%m-%d",
-      animate = T
-    ),
     radioGroupButtons(
       "cityselection", 
       label="Choose City", 
@@ -1797,22 +1745,16 @@ Row
 -----------------------------------------
 
 ```{r city_data,context="server",include=F}
-city_data_over_time <- reactive({
+city_data <- reactive({
   req(input$cityselection)
   
   city_combined() %>%
-    filter(city == input$cityselection) %>% 
-    glimpse()
+    filter(city == input$cityselection) 
 })
 
-city_vis_options <- get_vis_elements(city_data_over_time,
+city_vis_options <- get_vis_elements(city_data,
                                      "city_vis_options")
 
-city_data <- reactive({
-  req(input$citydate)
-  city_data_over_time() %>% 
-    filter(date == max(date)) # input$citydate) 
-})
 ```
 
 ### City View
@@ -1820,26 +1762,12 @@ city_data <- reactive({
 ```{r city_map,context="server",include=F}
 output$cityview <- renderLeaflet({
   req(city_vis_options)
-  req(city_data_over_time)
-  req(city_data)
-  
-  geoms <- city_data_over_time() %>%
-    group_by(zipcode) %>%
-    filter(row_number() == 1) %>%
-    ungroup() %>% 
-    use_series(geometry)
-  
-  bbox = st_bbox(geoms)
-  centroid = st_bbox(geoms)
-  
-  vis_options <- isolate(city_vis_options())
 
-  map <- leaflet(isolate(city_data())) %>% 
+  vis_options <- city_vis_options()
+  
+  leaflet() %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
-    addLayersControl(baseGroups = names(vis_options))  %>% 
-   # setMaxBounds(bbox[[1]], bbox[[2]], bbox[[3]], bbox[[4]]) %>% 
-    #setView(lat=centroid[[1]][2], lng=centroid[[1]][1], zoom=12) %>% 
-    update_map(vis_options, "cityview", input)
+    addLayersControl(baseGroups = names(vis_options))
 })
 
 observe(label="update_citymap", {
@@ -1847,8 +1775,17 @@ observe(label="update_citymap", {
   req(city_data)
   vis_options <- city_vis_options()
   
-  leafletProxy(data=city_data(), "cityview", deferUntilFlush=T) %>% 
-    update_map(vis_options, "cityview", input)
+  geoms <- zip_geoms %>% 
+    inner_join(city_data(), by="zipcode")
+  
+  box <- st_bbox(geoms$geometry)
+  center <- st_centroid(geoms$geometry)
+  
+  geoms %>% 
+    leafletProxy(data=., mapId = "cityview", deferUntilFlush=T) %>% 
+    update_map(vis_options, "cityview", input) %>%
+    setMaxBounds(box[[1]], box[[2]], box[[3]], box[[4]]) %>%
+    setView(lat=center[[1]][2], lng=center[[1]][1], zoom=11) 
 })
 
 observeEvent(input$cityview_groups, 

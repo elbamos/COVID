@@ -191,6 +191,12 @@ save(zip_geoms, file="zip_geoms.Rda")
 ```{r supplement_data,include=F,context="server-start"}
 supplement_data_for_growth <- function(x) x %>% 
   mutate(
+    pos_rate = cases / (cases + negative),
+    penetrance = cases / housing_units,
+    hosp_rate = hospitalized / cases, 
+    icu_rate = icu / hospitalized, 
+    vent_rate = vent / icu,
+    
     rate = round((cases / pop) * 100000),
     cases_new = cases - lag(cases, 1, default = 0),
     cases_growth_rate = case_when(
@@ -206,8 +212,39 @@ supplement_data_for_growth <- function(x) x %>%
     cases_growth_rate_ma = rollmeanr(cases_growth_rate, k=params$k, fill=NA),
     active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=params$k, fill=NA),
     
+    pop_density = pop / landsqmi,
+    housing_density = housing_units / landsqmi,
+    occupancy_density = pop / housing_units,
+    
     had_increase = cases_new > new_cases_ma, 
-    hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=1) + dplyr::lag(had_increase, 2, default=1)) == 3)
+    hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=1) + dplyr::lag(had_increase, 2, default=1)) == 3, 
+    
+    demographics = paste0(
+      if_else(!is.na(pop), paste0("Population: ", pop, "<br/>"), ""), 
+      if_else(!is.na(pop_density), paste0("Density: ", round(pop_density, 4), " ppl/sqmi<br/>"), ""),
+      if_else(is.na(housing_density), paste0( "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>"), "")
+    ), 
+    
+    case_rates = paste0(
+      if_else(!is.na(active_cases), paste0("Active Cases: ", active_cases, "<br/>"), ""),
+      if_else(!is.na(cases), paste0("Confirmed Cases: ", cases, "<br/>"), ""), 
+      if_else(!is.na(rate), paste0("Infection Rate: ", rate, " / 100,000 ppl<br/>"), ""),
+      if_else(!is.na(penetrance), paste0("Penetrance: ", round(penetrance, 3), " cases / household<br/>"), ""),
+      if_else(!is.na(deaths), paste0("Deaths: ", deaths, "<br/>"), ""),
+      if_else(!is.na(hospitalized), paste0("Hospitalized: ", hospitalized, "<br/>"), ""),
+      if_else(!is.na(icu), paste0("ICU: ", icu, "<br/>"), ""),
+      if_else(!is.na(vent), paste0("Ventilator: ", vent, "<br/>"), ""),
+      if_else(!is.na(recovered), paste0("Recovered: ", recovered, "<br/>"), "")
+    ), 
+    
+    growth_rates = paste0(
+      if_else(! is.na(cases_new), paste0("New Cases: ", cases_new, "<br/>"), ""), 
+      if_else(! is.na(cases_growth_rate), paste0("Growth: ", round(cases_growth_rate, 3), " d/d<br/>"), ""),
+      if_else(! is.na(new_cases_ma), paste0(params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>"), ""), 
+      if_else(! is.na(cases_growth_rate_ma), paste0(params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>"), ""),
+      if_else(!is.na(active_case_growth_rate_ma), paste0(params$k, "-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
+    )
+  )
 ```
 
 ```{r geometries,include=F,context="server-start",cache=F}
@@ -350,7 +387,13 @@ world_cases_jh <- reactive({
     mutate(
       deaths_new = deaths - lag(deaths, 1, default=0),
       cases_new = cases - lag(cases, 1, default=0), 
-      pop = NA, # Find pop later for more data!
+      pop = NA_real_, # Find pop later for more data!
+      landsqmi = NA_real_,
+      housing_units = NA_real_,
+      hospitalized = NA_real_,
+      icu = NA_real_, 
+      vent = NA_real_,
+      negative = NA_real_
     ) %>% 
     supplement_data_for_growth() 
 })
@@ -984,14 +1027,9 @@ world_cases <- reactive({
                      TRUE ~ Location
                    ),
                    "</font><br/>", 
-                   "Active: ", active_cases,
-                   "<br/>Confirmed: ", cases, 
-                   "<br/>Deaths: ", deaths,
-                   "<br/>Recovered: ", recovered, 
+                   case_rates, 
                    "<hr/>", 
-                   "New Cases/Day Moving Average: ", round(new_cases_ma), 
-                   "<br/>Case Growth Rate Moving Average: ", round(cases_growth_rate_ma * 100), "% change in newly diagnosed cases per day",
-                   "<br/>Active Case Growth Rate Moving Average: ", round(active_case_growth_rate_ma * 100), "% change in active cases per day"
+                   growth_rates
       ),
       popup=map(popup, HTML)
     ) 
@@ -1107,7 +1145,7 @@ world_case_summary <- reactive(label="world_case_summary", {
      ungroup() %>%
      group_by(date) %>%
      #select(-loc_id) %>%
-     summarize_all(~sum(., na.rm=T)) %>% 
+     summarize_if(is.numeric, ~sum(., na.rm=T)) %>% 
       arrange(date) %>% 
       supplement_data_for_growth()
   } else {
@@ -1293,15 +1331,6 @@ Row
 ### US Map
 
 ```{r make_us_cases,context="server-start",include=F}
-supplement_rates <- function(x) x %>% 
-  mutate(
-    pos_rate = cases / (cases + negative),
-    penetrance = cases / housing_units,
-    hosp_rate = hospitalized / cases, 
-    icu_rate = icu / hospitalized, 
-    vent_rate = vent / icu,
-  )
-
 make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %>%
   inner_join(
     county_cases %>%
@@ -1326,36 +1355,16 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
   select(-aland,-awater) %>%
   group_by(loc_id) %>%
   arrange(date) %>%
-  supplement_rates() %>% 
   supplement_data_for_growth() %>% 
   mutate(
     popup = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
       "<hr>",
-      "Population: ", pop, "<br/>",
-      "Density: ", round(pop_density, 4), " ppl/sqmi<br/>",
-      "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>",
-      "<hr>",
-      if_else(is.na(county), paste0("Active Cases: ", active_cases, "<br/>"), ""),
-      "Confirmed Cases: ", cases, "<br/>", 
-      "Infection Rate: ", rate, " / 100,000 ppl<br/>",
-      "Penetrance: ", round(penetrance, 3), " cases / household<br/>",
-      "Deaths: ", deaths, "<br/>",
-      if_else(is.na(county),
-              paste0(
-                "<hr>",
-                "Hospitalized: ", hospitalized, "<br/>",
-                if_else(icu > 0, paste0("ICU: ", icu, "<br/>"), " "),
-                if_else(vent > 0, paste0("Ventilator: ", vent, "<br/>"), " "),
-                "Recovered: ", recovered, "<br/>"
-              )
-              , " "),
-      "<hr>",
-      "New Cases: ", cases_new, "<br/>",
-      "Growth: ", round(cases_growth_rate, 3), " d/d<br/>",
-      params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
-      params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>",
-      if_else(is.na(county), paste0(params$k, "-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
+      demographics, 
+      "<hr/>", 
+      case_rates, 
+      "<hr/>", 
+      growth_rates
     ),
     popup = map(popup, HTML)
   )
@@ -1706,7 +1715,14 @@ city_combined <- reactive(
         dataset$sfzipcode(),
         dataset$alameda()
       ) %>% 
-        mutate(zipcode = as.character(zipcode)) 
+        mutate(
+          zipcode = as.character(zipcode),
+          negative = NA_real_, 
+          housing_units = NA_real_,
+          hospitalized = NA_real_, 
+          icu = NA_real_, 
+          vent = NA_real_
+        ) 
     ) %>% 
     group_by(zipcode) %>%
     arrange(date) %>% 
@@ -1725,14 +1741,12 @@ city_combined <- reactive(
       rate = (cases / pop) * 100000,
       popup = paste0(
         "<font color='blue'>Zipcode: ", zipcode, "</font><br/>",
-        "Cases: ", cases, " / ", pop, " population<br/>", 
-        "Infection rate: ", round(rate), " / 100,000 ppl<br/>",
-        "Density: ", round(pop_density), " ppl / sqmi<br/>",
-        "<hr>",
-        "New Cases: ", cases_new, "<br/>",
-        "Growth: ", round(cases_growth_rate, 3), " d/d<br/>",
-        params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>", 
-        params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>"
+        "<hr/>",
+        demographics, 
+        "<hr/>", 
+        case_rates, 
+        "<hr/>", 
+        growth_rates
       ),
       popup = map(popup, HTML)
     )

@@ -1286,7 +1286,10 @@ Row
 ### US Map
 
 ```{r make_us_cases,context="server-start",include=F}
-make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %>%
+us_geography_data <- geometries %>% data.frame() %>%
+  select(aland, housing_units, pop, loc_id)
+
+make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography_data %>%
   inner_join(
     county_cases %>%
       bind_rows(state_cases) %>% 
@@ -1299,7 +1302,8 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
                          hospitalized = hospitalizedCurrently, 
                          icu = inIcuCurrently, 
                          vent = onVentilatorCurrently, 
-                         recovered))
+                         recovered)), 
+    by = "loc_id"
   ) %>%
   mutate(
     landsqmi = aland / 2591646,
@@ -1307,10 +1311,10 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
     housing_density = housing_units / landsqmi,
     occupancy_density = pop / housing_units
   ) %>%
-  select(-aland,-awater) %>%
   group_by(loc_id) %>%
   arrange(date) %>%
   supplement_data_for_growth() %>% 
+  ungroup() %>% 
   mutate(
     popup = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
@@ -1325,7 +1329,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) geometries %
   )
 
 
-us_cases_with_geo <- reactive(make_us_cases(dataset$cases_county_nyt(), 
+us_cases_all <- reactive(make_us_cases(dataset$cases_county_nyt(), 
                                             dataset$cases_state_nyt(),
                                             dataset$covid_track()))
 ```
@@ -1335,7 +1339,7 @@ us_cases_state_county <- reactive({
   req(input$usscale)
   scale <- input$usscale
   
-  us_cases_with_geo() %>%
+  us_cases_all() %>%
     filter(
       (scale == "County" & ! is.na(county)) | (scale == "State" & is.na(county)),
       cases >= input$usmincases
@@ -1351,6 +1355,11 @@ us_cases_date_filtered <- reactive({
       date == input$usdate
     ) 
 })
+
+us_cases_with_geo <- reactive(
+  geometries %>% 
+    inner_join(us_cases_date_filtered())
+)
 ```
 
 ```{r usmap_vis_elements,context="server",include=F}
@@ -1375,7 +1384,8 @@ output$usview <- renderLeaflet({
 observe(label="update_usmap", {
   vis_options <- us_vis_options()
   
-  map <- leafletProxy(data=us_cases_date_filtered(), "usview", deferUntilFlush=T) %>%
+  map <- us_cases_with_geo() %>% 
+    leafletProxy(data=., "usview", deferUntilFlush=T) %>%
     update_map(vis_options, "usview", input)
 
   map %<>%
@@ -1415,9 +1425,7 @@ region_click_state <- reactive(label="usmapclick", {
     
     target <- st_point(x=c(lng, lat), dim=c("XY"))
     
-    out <- us_cases_state_county() %>% 
-        group_by(loc_id) %>%
-        filter(row_number() == 1) %>%
+    out <- us_cases_with_geo() %>% 
         filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
         filter(st_within(target, geometry, sparse=F, prepared=F)) %>% 
         select(state, county, loc_id)
@@ -1427,7 +1435,7 @@ region_click_state <- reactive(label="usmapclick", {
 })
 
 us_case_summary <- reactive(label="us_case_summary", {
-  cases <- us_cases_state_county() %>% select(-geometry) %>% as.data.frame()
+  cases <- us_cases_state_county()
   click_state <- region_click_state()
 
   if (is.na(click_state)) {

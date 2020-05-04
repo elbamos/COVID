@@ -177,13 +177,18 @@ alameda <- geojson_sf("https://opendata.arcgis.com/datasets/55a1734dba614a60b2b8
     zipcode = ZIP_CODE
   ) %>%
   st_transform(crs=st_crs(chn))
+
+sanmateo <- geojson_sf("./Shapes/stanford-gm175wm1954-geojson.json") %>% 
+  select(zipcode, geometry) %>% 
+  mutate(pop = NA) %>% 
+  st_transform(crs=st_crs(chn))
   
 
 ny_zip_geoms <- st_read("./Shapes/nyzipcodes/ZIP_CODE_040114.shp") %>%
   select(zipcode = ZIPCODE, geometry, pop=POPULATION) %>%
   st_transform(crs=st_crs(chn))
 
-zip_geoms %<>% rbind(ny_zip_geoms) %>% rbind(alameda)
+zip_geoms %<>% rbind(ny_zip_geoms) %>% rbind(alameda) %>% rbind(sanmateo)
 
 save(zip_geoms, file="zip_geoms.Rda")
 ```
@@ -522,6 +527,8 @@ dataset$nyzipcode <- makePoll("NYC Testing by Zipcode", url_nyzipcode, process_n
 
 ```{r data_sfhealth,context="server-start",include=F}
 url_sfzipcode <- "https://data.sfgov.org/resource/favi-qct6.csv"
+
+load("./san_mateo.Rda")
 
 process_sfzipcode <- function(x) x %>% 
   select(date = data_as_of, zipcode=zip_code, cases=count_of_confirmed_cases) %>%
@@ -1680,7 +1687,10 @@ city_combined <- reactive({
     dataset$alameda()
   ) %>% 
     mutate(
-      zipcode = as.character(zipcode),
+      zipcode = as.character(zipcode)
+    ) %>% 
+    bind_rows(san_mateo %>% rename(cases=count)) %>% 
+    mutate(
       negative = NA_real_, 
       housing_units = NA_real_,
       hospitalized = NA_real_, 
@@ -1793,7 +1803,7 @@ observe(label="update_citymap", {
     leafletProxy(data=., mapId = "cityview", deferUntilFlush=T) %>% 
     update_map(vis_options, "cityview", input) %>%
     setMaxBounds(box[[1]], box[[2]], box[[3]], box[[4]]) %>%
-    setView(lat=center[[1]][2], lng=center[[1]][1], zoom=11) 
+    setView(lat=center[[1]][2], lng=center[[1]][1], zoom=10)
 })
 
 observeEvent(input$cityview_groups, 

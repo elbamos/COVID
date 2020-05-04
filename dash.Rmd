@@ -824,9 +824,8 @@ tagList(
   p("The 'Active Case Growth Rate Moving Average', for example, shows whether the burden on health care is increasing or decreasing in each region."), 
   h3("US Testing"),
   p("The US Testing pane shows the progress in testing roll-out, country-wide and by state."),
-  h3("New York City Testing"),
-  p("The NYC Testing pane shows the number of positive tests, and proportion of tests that are positive, by New York City zipcode."),
-  p("This view can be used to explore how socioeconomic factors influence both test availability and susceptibility to the virus."), 
+  h3("Cities"),
+  p("The cities pane shows close-up views of New York City and the San Francisco Bay Area"), 
   h3("Interventions"), 
   p("The interventions pane shows the effect of different interventions on the rate of infection."),
   p("Each line represents a county. The x axis is the number of days from the time that county hit a threshold number of infections."),
@@ -909,15 +908,39 @@ output$status_covid_track <- data_status_box(dataset$covid_track, "COVID Track",
 valueBoxOutput("status_covid_track")
 ```
 
+Row {data-height=70}
+-----------------------------
 
 ### NY DOH
 
 ```{r status_ny,context="server"}
-output$status_nydoh <- data_status_box(dataset$nyzipcode, "NY Testing by Zipcode", "NY DOH")
+output$status_nydoh <- data_status_box(dataset$nyzipcode, "NYC Testing by Zipcode", "NY DOH")
 ```
 
-```{r status_ny_out}
+```{r status_nyc_out}
 valueBoxOutput("status_nydoh")
+```
+
+### SF
+
+```{r status_sf,context="server"}
+output$status_sf <- data_status_box(dataset$sfzipcode, "SF Testing by Zipcode", "SF")
+```
+
+
+```{r status_sf_out}
+valueBoxOutput("status_sf")
+```
+
+### Alameda
+
+```{r status_alameda,context="server"}
+output$status_alameda <- data_status_box(dataset$alameda, "Alameda", "Alameda")
+```
+
+
+```{r status_alameda_out}
+valueBoxOutput("status_alameda")
 ```
 
 World Overview

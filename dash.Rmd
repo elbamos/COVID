@@ -793,7 +793,8 @@ if (! exists("input")) {
     usdate = Sys.Date() - 1, 
     worldscale = "linear", 
     worldmincases = 1,
-    cityselection = "New York"
+    cityselection = "New York",
+    curve_flattening_min_cases = 1000
   )
   
   output <- list()
@@ -1985,7 +1986,7 @@ Inputs {.sidebar}
 ```{r curve_flattening_inputs_server,context="server"}
 output$curve_flattening_inputs <- renderUI({
   tagList(
-    radioButtons("curve_flattening_resolution", label="Resolution", choices=c("Countries", "States", "Counties"), selected="Countries"),
+    radioButtons("curve_flattening_resolution", label="Resolution", choices=c("Countries", "State", "County"), selected="Countries"),
     sliderTextInput(
       "curve_flattening_min_cases", 
       "Minimum Number of Cases", 
@@ -2010,7 +2011,7 @@ curve_flattening_data <- reactive({
   
   if (resolution == "Countries") {
     world_cases_jh() %>% 
-      select(loc_id, cases=confirmed, date, new_cases_ma) %>% 
+      select(loc_id, cases, date, new_cases_ma) %>% 
       filter(
         cases > input$curve_flattening_min_cases, 
         ! is.na(new_cases_ma)
@@ -2020,16 +2021,22 @@ curve_flattening_data <- reactive({
       ungroup() %>% 
       select(name, cases, new_cases_ma, date)
   } else {
-    us_cases_with_geo() %>% 
+    us_cases_all() %>% 
       filter(
         us_level == resolution, 
         cases > input$curve_flattening_min_cases, 
         ! is.na(new_cases_ma)
       ) %>% 
-      data.frame() %>% 
-      mutate(name = paste0(county, ", ", state)) %>% 
-      select(name=state, cases, new_cases_ma, date)
-  }
+      mutate(
+        name = case_when(
+          resolution == "State" ~ state, 
+          TRUE ~ paste0(county, ", ", state)
+      )) %>% 
+      select(name, cases, new_cases_ma, date)
+  } %>%
+    mutate(
+      new_cases_ma = round(new_cases_ma)
+    )
 })
 ```
 

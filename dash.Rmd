@@ -482,31 +482,16 @@ dataset$covid_track <- reactivePoll(
 
 ```{r data_interventions,context="server-start",include=F}
 # ---------------  Intervention data
-url_interventions <- "https://raw.githubusercontent.com/Keystone-Strategy/covid19-intervention-data/master/archive/npi_data_03-24-2020.csv"
+url_interventions <- "https://raw.githubusercontent.com/Keystone-Strategy/covid19-intervention-data/master/complete_npis_inherited_policies.csv"
 
 process_interventions <- function(x) x %>%
-  select(-matches("X[0-9]+")) %>%
+  select(county, state, intervention=npi, date=start_date, end_date) %>% 
   mutate(
-    state.abb = str_match(Intervention, "., ([A-Z]+)")[, 2], 
-    county = str_match(Intervention, "(.+)\\sCounty.")[,2],
-    county = case_when(
-      ! is.na(county) ~ county, 
-      str_detect(Intervention, "DC") ~ "Washington", 
-      str_detect(Intervention, "New York City") ~ "New York City", 
-      TRUE ~ county
-    ), 
-    state.abb = if_else(is.na(state.abb), "DC", state.abb)
-  ) %>% 
-  select(-Intervention) %>% 
-  gather(key="intervention", value="date", -state.abb, -county) %>% 
-  filter(! is.na(date)) %>%
-  inner_join(data.frame(state.abb=state.abb, state.name=state.name)) %>% 
-  mutate(
-    date = mdy(date)
-  ) %>% 
-  inner_join(locations %>% select(county=Subsublocation, state.name=Sublocation, loc_id)) %>% 
-  select(-matches("state"), -county)
-
+    date = mdy(date), end_date = mdy(end_date)
+  ) %>%
+  filter(! is.na(date)) %>% 
+  inner_join(locations %>% select(county=Subsublocation, state=Sublocation, loc_id)) %>% 
+  select(-county, -state)
 
 dataset$interventions <- makePoll("Interventions", url_interventions,
                                   process_interventions)

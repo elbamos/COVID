@@ -1860,11 +1860,18 @@ Row
 --------------------------------------
 
 ```{r curve_flattening_data,context="server"}
+
+grouped_interventions <- reactive(
+  dataset$interventions() %>% 
+    group_by(loc_id, date) %>% 
+    summarize(intervention = paste(intervention, collapse=", "))
+)
+
 curve_flattening_data <- reactive({
   req(input$curve_flattening_resolution)
   resolution <- input$curve_flattening_resolution
   
-  if (resolution == "Countries") {
+  x <- if (resolution == "Countries") {
     world_cases_jh() %>% 
       select(loc_id, cases, date, new_cases_ma) %>% 
       filter(
@@ -1872,9 +1879,13 @@ curve_flattening_data <- reactive({
         ! is.na(new_cases_ma)
       ) %>% 
       left_join(locations %>% select(Location, Sublocation, loc_id)) %>% 
-      mutate(name = if_else(is.na(Sublocation), Location, paste0(Sublocation, ", ", Location))) %>%
+      mutate(
+        name = if_else(is.na(Sublocation), Location, paste0(Sublocation, ", ", Location)),
+        intervention = NA,
+        new_cases_ma = round(new_cases_ma)
+      ) %>%
       ungroup() %>% 
-      select(name, cases, new_cases_ma, date)
+      select(name, cases, new_cases_ma, date, intervention) 
   } else {
     us_cases_all() %>% 
       filter(
@@ -1883,15 +1894,56 @@ curve_flattening_data <- reactive({
         ! is.na(new_cases_ma)
       ) %>% 
       mutate(
+        new_cases_ma = round(new_cases_ma),
         name = case_when(
           resolution == "State" ~ state, 
           TRUE ~ paste0(county, ", ", state)
       )) %>% 
-      select(name, cases, new_cases_ma, date)
-  } %>%
+      select(name, cases, new_cases_ma, date) %>%
+      left_join(grouped_interventions()) 
+  }
+# Turn into a list for highchartr
+  x %>% mutate(
+      data = pmap(list(cases, new_cases_ma, intervention, date), function(cases, new_cases_ma, intervention, date, ...) {
+        list(
+          x = cases, 
+          y = new_cases_ma, 
+          marker = list(
+            enabled = ! is.na(intervention),
+            symbol = case_when(
+              str_detect(intervention, "lockdown") ~ "triangle", 
+              str_detect(intervention, "shelter_in_place") ~ "triangle-down", 
+              str_detect(intervention, "non-essential_services_closure") ~ "square", 
+              str_detect(intervention, "social_distancing") ~ "diamond", 
+              TRUE ~ "circle"
+            )
+          ), 
+          date = date, 
+          intv = intervention 
+        )
+      })
+    ) %>% 
+    select(-intervention, -new_cases_ma, -date) %>%
+    group_by(name) %>% 
+    arrange(cases) %>% 
+    summarize(
+      dt = list(data)
+    ) %>% 
     mutate(
-      new_cases_ma = round(new_cases_ma)
-    )
+      series = map2(dt, name, ~ list(
+          type = "line", 
+          data = .x, 
+          name = .y, 
+          id = .y, 
+          tooltip=list(
+            shared=F, 
+            headerFormat='<span style="font-size: 10px">{series.name} {point.date}</span><br/>',
+            pointFormat="{point.date} {point.intv} Cases: {point.x}  New Cases MA: {point.y}"
+          )
+        )
+      )
+    ) %>%
+    use_series(series)
 })
 ```
 
@@ -1902,15 +1954,8 @@ output$curve_flattening <- renderHighchart(
   highchart() %>%
     hc_xAxis(title=list(text="Cases"), type="logarithmic") %>%
     hc_yAxis(title=list(text="New Cases"), type="logarithmic", min=1) %>% 
-    hc_add_series(
-      type="line",
-      marker=list(enabled=F),
-      data=curve_flattening_data(), 
-      mapping=hcaes(x=cases, y=new_cases_ma, group=name),
-      tooltip=list(
-        shared=T, 
-        pointFormat="{point.date}  Cases: {point.cases}  New Cases MA: {point.new_cases_ma}"
-        )
+    hc_add_series_list(
+      curve_flattening_data()
     ) 
 )
 ```

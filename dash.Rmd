@@ -196,7 +196,6 @@ save(zip_geoms, file="zip_geoms.Rda")
 ```{r supplement_data,include=F,context="server-start"}
 supplement_data_for_growth <- function(x) x %>% 
   mutate(
-    pos_rate = cases / (cases + negative),
     penetrance = cases / housing_units,
     hosp_rate = hospitalized / cases, 
     icu_rate = icu / hospitalized, 
@@ -248,6 +247,23 @@ supplement_data_for_growth <- function(x) x %>%
       if_else(! is.na(new_cases_ma), paste0(params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>"), ""), 
       if_else(! is.na(cases_growth_rate_ma), paste0(params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>"), ""),
       if_else(!is.na(active_case_growth_rate_ma), paste0(params$k, "-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
+    )
+  )
+
+supplement_testing_data <- function(x) x %>% 
+  mutate(
+    cum_negative = cumsum(negativeIncrease), 
+    cum_pos_rate = cases / (cases + cum_negative), 
+    pos_rate = positiveIncrease / (positiveIncrease + negativeIncrease), 
+    tests = pending + positiveIncrease + negativeIncrease, 
+    tests_per_cap = (tests / pop) * 100000, 
+    tests_per_cap_ma = rollmeanr(tests_per_cap, k=params$k, fill=NA), 
+    text_testing = paste0(
+      if_else(!is.na(tests), paste0("Tests Performed: ", tests, "<br/>"), ""),
+      if_else(!is.na(tests_per_cap), paste0(params$k, "-Day Trailing Average Daily Tests / 100,000 ppl: ", round(tests_per_cap, 1), "<br/>"), ""), 
+      if_else(!is.na(pending), paste0("Test Backlog: ", pending, "<br/>"), ""),
+      if_else(!is.na(pos_rate), paste0("Daily Positive Rate: ", round(pos_rate * 100), "%<br/>"), ""),
+      if_else(!is.na(cum_pos_rate), paste0("Positive Rate So Far: ", round(cum_pos_rate * 100), "%<br/>"), "")
     )
   )
 ```
@@ -1310,7 +1326,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography
       rename(state = Sublocation, county = Subsublocation) %>%
       left_join(covid_tracker %>% 
                   select(date, loc_id, 
-                         negative, pending, 
+                         negativeIncrease, pending, positiveIncrease,
                          hospitalized = hospitalizedCurrently, 
                          icu = inIcuCurrently, 
                          vent = onVentilatorCurrently, 
@@ -1326,6 +1342,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography
   group_by(loc_id) %>%
   arrange(date) %>%
   supplement_data_for_growth() %>% 
+  supplement_testing_data() %>%
   ungroup() %>% 
   mutate(
     popup = paste0(
@@ -1335,7 +1352,9 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography
       "<hr/>", 
       case_rates, 
       "<hr/>", 
-      growth_rates
+      growth_rates, 
+      "<hr/>", 
+      text_testing
     ),
     popup = map(popup, HTML)
   )

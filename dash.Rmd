@@ -812,10 +812,6 @@ tagList(
   p("The US Testing pane shows the progress in testing roll-out, country-wide and by state."),
   h3("Cities"),
   p("The cities pane shows close-up views of New York City and the San Francisco Bay Area"), 
-  h3("Interventions"), 
-  p("The interventions pane shows the effect of different interventions on the rate of infection."),
-  p("Each line represents a county. The x axis is the number of days from the time that county hit a threshold number of infections."),
-  p("The points on the lines show the dates on which different interventions were imposed."),
   h3("Curve Flattening"),
   p("This chart shows, for different regions, the number of new cases per day vs. the number of pre-existing cases, over time."),
   p("Its an indication of each region's effectiveness in stopping the spread.")
@@ -1841,6 +1837,10 @@ Inputs {.sidebar}
 ```{r curve_flattening_inputs_server,context="server"}
 output$curve_flattening_inputs <- renderUI({
   tagList(
+    p("These charts show regions' progress in 'flattening the curve' by reducing the number of new cases per day as the number of cases increases."), 
+    p("A flat horizontal line implies linear growth"), 
+    p("A line moving down implies that the growth rate is dropping"), 
+    p("Points on the State and County chart correspond to imposed interventions."),
     radioButtons("curve_flattening_resolution", label="Resolution", choices=c("Countries", "State", "County"), selected="Countries"),
     sliderTextInput(
       "curve_flattening_min_cases", 
@@ -1953,7 +1953,7 @@ curve_flattening_data <- reactive({
 output$curve_flattening <- renderHighchart(
   highchart() %>%
     hc_xAxis(title=list(text="Cases"), type="logarithmic") %>%
-    hc_yAxis(title=list(text="New Cases"), type="logarithmic", min=1) %>% 
+    hc_yAxis(title=list(text="New Cases"), type="logarithmic", min=100) %>% 
     hc_add_series_list(
       curve_flattening_data()
     ) 

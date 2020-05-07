@@ -1484,7 +1484,7 @@ us_case_summary <- reactive(label="us_case_summary", {
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
-           cum_negative, pending, negativeIncrease,
+           cum_negative, pending, negativeIncrease, cum_pos_rate, 
            `New Cases` = cases_new, new_cases_ma, cases_growth_rate, cases_growth_rate_ma) 
   
 })
@@ -1581,7 +1581,7 @@ output$us_growth_rate <- renderHighchart(
 output$ustesting <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
-    hc_title(text="Cumulative Testing") %>%
+    hc_title(text=paste0("Cumulative Testing (", isolate(click_state_name()), ")")) %>%
     hc_yAxis(title="") %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(data = us_case_summary() %>% 
@@ -1598,7 +1598,7 @@ output$ustesting <- renderHighchart(
 output$ustestinginc <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
-    hc_title(text="Incremental Testing") %>%
+    hc_title(text=paste0("Daily Testing (", isolate(click_state_name()), ")")) %>%
     hc_yAxis(title="") %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(data = us_case_summary() %>% 
@@ -1607,6 +1607,20 @@ output$ustestinginc <- renderHighchart(
                   type="column", 
                   mapping=hcaes(x=date, y=val, group=Series, fill=Series)) %>%
     hc_tooltip(shared=T)
+)
+```
+
+```{r ustestingresults_server,context="server",include=F}
+output$ustestingrate <- renderHighchart(
+  highchart()  %>%
+    hc_plotOptions(column=list(stacking="normal")) %>%
+    hc_title(text=paste0("Positive Rate (", isolate(click_state_name()), ")")) %>%
+    hc_yAxis(title="") %>%
+    hc_xAxis(type="datetime") %>% 
+    hc_add_series(data = us_case_summary() %>% 
+                    select(date, `Positive Rate`= cum_pos_rate), 
+                  type="line", 
+                  mapping=hcaes(x=date, y=`Positive Rate`))
 )
 ```
 
@@ -1622,8 +1636,9 @@ tabsetPanel(type="tabs",
             ), 
             tabPanel("Testing", 
                      fluidRow(
-                       column(6, highchartOutput("ustesting")),
-                       column(5, highchartOutput("ustestinginc"), 1), 
+                       column(4, highchartOutput("ustesting")),
+                       column(4, highchartOutput("ustestinginc")), 
+                       column(4, highchartOutput("ustestingrate"))
                        
                      )
             )

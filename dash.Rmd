@@ -1934,12 +1934,7 @@ curve_flattening_data <- reactive({
           type = "line", 
           data = .x, 
           name = .y, 
-          id = .y, 
-          tooltip=list(
-            shared=F, 
-            headerFormat='<span style="font-size: 10px">{series.name} {point.date}</span><br/>',
-            pointFormat="{point.date} {point.intv} Cases: {point.x}  New Cases MA: {point.y}"
-          )
+          id = .y
         )
       )
     ) %>%
@@ -1956,7 +1951,12 @@ output$curve_flattening <- renderHighchart(
     hc_yAxis(title=list(text="New Cases"), type="logarithmic", min=100) %>% 
     hc_add_series_list(
       curve_flattening_data()
-    ) 
+    ) %>%
+    hc_tooltip(
+      shared=F, 
+      headerFormat='<span style="font-size: 10px">{series.name}</span><br/>',
+      pointFormat="{point.date}<br/>{point.intv}<br/>Cases: {point.x}  New Cases MA: {point.y}"
+    )
 )
 ```
 

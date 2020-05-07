@@ -1441,10 +1441,10 @@ leafletOutput("usview")
 ```
 
 
-Row 
+Row
 ------------------------------------------------------------------
 
-### US Cases
+###
 
 ```{r data_for_us_charts,context="server",include=F}
 region_click_state <- reactive(label="usmapclick", {
@@ -1519,12 +1519,6 @@ output$uscaseslinear <- renderHighchart({
 })
 ```
 
-```{r us_cumulative_output}
-highchartOutput("uscaseslinear")
-```
-
-
-### New Cases Per Day
 
 ```{r usewcases,context="server",include=F}
 output$usdailynewcases <- renderHighchart(
@@ -1547,11 +1541,6 @@ output$usdailynewcases <- renderHighchart(
 )
 ```
 
-```{r usnewcasesoutput}
-highchartOutput("usdailynewcases")
-```
-
-### Growth Rate (new cases / prior cases)
 
 ```{r us_growth_server,context="server",include=F}
 output$us_growth_rate <- renderHighchart(
@@ -1586,8 +1575,16 @@ output$us_growth_rate <- renderHighchart(
 )
 ```
 
-```{r us_growth_output}
-highchartOutput("us_growth_rate")
+```{r us_charts_tabset}
+tabsetPanel(type="tabs", 
+            tabPanel("Growth", 
+                     fluidRow(
+                       column(4, highchartOutput("uscaseslinear")),
+                       column(4, highchartOutput("usdailynewcases")),
+                       column(4, highchartOutput("us_growth_rate"))
+                     )
+                     )
+)
 ```
 
 US Testing

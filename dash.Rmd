@@ -1473,7 +1473,8 @@ us_case_summary <- reactive(label="us_case_summary", {
     cases %<>% 
       group_by(date) %>% 
       summarize_if(is.numeric, ~sum(., na.rm=T)) %>%
-      supplement_data_for_growth()
+      supplement_data_for_growth() %>%
+      supplement_testing_data()
   } else {
     cases %<>% 
       filter(loc_id == click_state$loc_id[1])
@@ -1483,6 +1484,7 @@ us_case_summary <- reactive(label="us_case_summary", {
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
+           cum_negative, pending, negativeIncrease,
            `New Cases` = cases_new, new_cases_ma, cases_growth_rate, cases_growth_rate_ma) 
   
 })
@@ -1510,7 +1512,7 @@ output$uscaseslinear <- renderHighchart({
       type="line",
       marker=list(enabled=F), 
       data=us_case_summary() %>% 
-        select(-new_cases_ma, -cases_growth_rate, -cases_growth_rate_ma) %>% 
+        select(date, Cases, Deaths, Hospitalized, ICU, Ventilator, Recovered) %>% 
         gather(key="Series", value="val", -date) %>%
         filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
@@ -1575,6 +1577,40 @@ output$us_growth_rate <- renderHighchart(
 )
 ```
 
+```{r ustesting_cumulative,context="server",include=F}
+output$ustesting <- renderHighchart(
+  highchart()  %>%
+    hc_plotOptions(column=list(stacking="normal")) %>%
+    hc_title(text="Cumulative Testing") %>%
+    hc_yAxis(title="") %>%
+    hc_xAxis(type="datetime") %>% 
+    hc_add_series(data = us_case_summary() %>% 
+                    select(date, Positive=Cases, Negative=cum_negative, Pending=pending) %>% 
+                    gather(key="Series", val="val", -date), 
+                  type="column", 
+                  mapping=hcaes(x=date, y=val, group=Series, fill=Series)) %>%
+    hc_tooltip(shared=T)
+)
+```
+
+
+```{r ustestinginc_server,context="server",include=F}
+output$ustestinginc <- renderHighchart(
+  highchart()  %>%
+    hc_plotOptions(column=list(stacking="normal")) %>%
+    hc_title(text="Incremental Testing") %>%
+    hc_yAxis(title="") %>%
+    hc_xAxis(type="datetime") %>% 
+    hc_add_series(data = us_case_summary() %>% 
+                    select(date, Positive=`New Cases`, Negative=negativeIncrease) %>% 
+                    gather(key="Series", val="val", -date), 
+                  type="column", 
+                  mapping=hcaes(x=date, y=val, group=Series, fill=Series)) %>%
+    hc_tooltip(shared=T)
+)
+```
+
+
 ```{r us_charts_tabset}
 tabsetPanel(type="tabs", 
             tabPanel("Growth", 
@@ -1583,110 +1619,17 @@ tabsetPanel(type="tabs",
                        column(4, highchartOutput("usdailynewcases")),
                        column(4, highchartOutput("us_growth_rate"))
                      )
+            ), 
+            tabPanel("Testing", 
+                     fluidRow(
+                       column(6, highchartOutput("ustesting")),
+                       column(5, highchartOutput("ustestinginc"), 1), 
+                       
                      )
+            )
 )
 ```
 
-US Testing
-=====================================================
-
-Inputs {.sidebar}
------------------------------------------------------------------------
-
-```{r ustesting_input}
-tagList(
-  checkboxGroupInput("testingstates", label = "States to Show", 
-                     choices = state.name, 
-                     selected=state.name)
-)
-```
-
-Row
------------------------------------------------------
-
-```{r ustesting_filter,context="server",include=F}
-covid_track_filtered <- reactive(dataset$covid_track() %>% 
-                                   semi_join(
-                                     locations %>% filter(Sublocation %in% input$testingstates,
-                                                          is.na(Subsublocation))
-                                   )
-)
-```
-
-### US Testing (Cumulative)
-
-```{r ustesting,context="server",include=F}
-output$ustesting <- renderHighchart(
-  highchart()  %>%
-    hc_plotOptions(column=list(stacking="normal")) %>%
-    hc_title(text="Cumulative US Testing") %>%
-    hc_yAxis(title="") %>%
-    hc_xAxis(type="datetime") %>% 
-    hc_add_series(data = covid_track_filtered() %>% 
-                    select(date, positive, negative, pending) %>% 
-                    group_by(date) %>% 
-                    summarize_all(~sum(., na.rm=T)) %>%
-                    gather(key="Series", val="val", -date), 
-                  type="column", 
-                  mapping=hcaes(x=date, y=val, group=Series, fill=Series))
-)
-```
-```{r ustestingoutput}
-highchartOutput("ustesting")
-```
-
-### US Testing (Incremental)
-
-```{r ustestinginc_server,context="server",include=F}
-output$ustestinginc <- renderHighchart(
-  highchart()  %>%
-    hc_plotOptions(column=list(stacking="normal")) %>%
-    hc_title(text="Incremental US Testing") %>%
-    hc_yAxis(title="") %>%
-    hc_xAxis(type="datetime") %>% 
-    hc_add_series(data = covid_track_filtered() %>% 
-                    select(date, positive, negative) %>% 
-                    group_by(date) %>% 
-                    summarize_all(~sum(., na.rm=T)) %>%
-                    arrange(date) %>%
-                    mutate_if(is.numeric, ~ . - lag(., 1L, default=0)) %>%
-                    gather(key="Series", val="val", -date), 
-                  type="column", 
-                  mapping=hcaes(x=date, y=val, group=Series, fill=Series))
-)
-```
-```{r ustestinginc_output}
-highchartOutput("ustestinginc")
-```
-
-Row
----------------------------------------------------
-
-### Tests Per Day By State
-
-```{r testsperdaybystate_server,context="server",include=F}
-output$ustestingbystateinc <- renderHighchart(
-  highchart() %>%
-    hc_title(text="Daily Testing By State") %>%
-    hc_xAxis(type="datetime") %>% 
-    hc_yAxis(title="", min=0) %>%
-    hc_add_series(
-      data=covid_track_filtered() %>% 
-        select(date, positiveIncrease, negativeIncrease, loc_id) %>% 
-        mutate(tests = positiveIncrease + negativeIncrease) %>%
-        select(-positiveIncrease, -negativeIncrease) %>% 
-        inner_join(locations %>% select(loc_id, state=Sublocation)) %>% 
-        select(-loc_id),
-      mapping=hcaes(x=date, y=tests, group=state),
-      type="line",
-      marker=list(enabled=F)
-    ) %>%
-    hc_tooltip(shared=T)
-)
-```
-```{r testsperdaybystate_output}
-highchartOutput("ustestingbystateinc")
-```
 
 Cities 
 ===================================================

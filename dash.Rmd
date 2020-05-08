@@ -606,7 +606,9 @@ palletes <- list(
   icu_rate = "magma", 
   vent_rate = "viridis",
   rate = "inferno", # infection_rate
-  penetrance = "plasma"
+  penetrance = "plasma",
+  pos_rate = "RdYlGn", 
+  tests_per_cap_ma = "RdPu"
 )
 
 get_ranges <- function(x, label) {
@@ -683,20 +685,6 @@ get_vis_elements <- function(x, label) reactive(label=label, {
       legend_vals = quote(log10(ranges[["pop_density"]]$log_rng)),
       legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
     ),
-    "Housing Density" = list(
-      field = "housing_density",
-      pal = quote(log10(housing_density)),
-      legend_bins = 6,
-      legend_vals = quote(log10(ranges[["housing_density"]]$log_rng)),
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " homes / sqmi")
-    ),
-    "Occupancy Density" = list(
-      field = "occupancy_density",
-      pal = quote(log10(occupancy_density)),
-      legend_bins = 4,
-      legend_vals = quote(log10(ranges[["occupancy_density"]]$log_rng)),
-      legend_trans = labelFormat(suffix = "ppl / home")
-    ),
     "Active Cases" = list(
       field = "active_cases",
       pal = quote(log10(active_cases)),
@@ -717,6 +705,20 @@ get_vis_elements <- function(x, label) reactive(label=label, {
       legend_bins=4, 
       legend_vals=quote(c(0, 1)), 
       legend_trans=labelFormat(transform=identity, suffix=" Ventilator / ICU Admission")
+    ),
+    "Daily Testing Moving Average" = list(
+      field = "tests_per_cap_ma", 
+      pal = quote(tests_per_cap_ma), 
+      legend_bins = 3, 
+      legend_vals = ranges[["tests_per_cap_ma"]]$rng, 
+      legend_trans = labelFormat(transform=identity, suffix=" Tests / 100,000 ppl")
+    ), 
+    "Positive Test Rate" = list(
+      field = "pos_rate", 
+      pal = quote(-pos_rate), 
+      legend_bins=4, 
+      legend_vals = -c(0, 1), 
+      legend_trans = labelFormat(transform=function(x) - x)
     )
   ) %>%
     keep(~ .$field %in% names(ranges)) %>%

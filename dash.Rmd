@@ -791,9 +791,11 @@ adjust_legend <- function(map, groups, vis_options) {
 if (! exists("input")) {
   input <- list(
     worlddate = Sys.Date() - 1, 
-    usdate = Sys.Date() - 1, 
     worldscale = "linear", 
     worldmincases = 1,
+    usdate = Sys.Date() - 1, 
+    usscale = "State",
+    usmincases = 1,
     cityselection = "New York",
     curve_flattening_min_cases = 1000
   )
@@ -1298,7 +1300,7 @@ output$usinputs <- renderUI({
       "usmincases", 
       "Minimum Number of Cases", 
       choices = 10^(0:3),
-      selected = 1
+      selected = 100
     )
   )
 })
@@ -1341,6 +1343,12 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography
   ) %>%
   group_by(loc_id) %>%
   arrange(date) %>%
+  mutate_at(vars(negativeIncrease, pending, positiveIncrease), ~ case_when(
+    us_level == "County" ~ NA_integer_, 
+    is.na(.) ~ 0L, 
+    TRUE ~ .
+  )) %>%
+  mutate_at(vars(hospitalized, icu, vent, recovered), ~ na.locf(., na.rm=F)) %>% 
   supplement_data_for_growth() %>% 
   supplement_testing_data() %>%
   ungroup() %>% 
@@ -1446,7 +1454,7 @@ Row
 
 ###
 
-```{r data_for_us_charts,context="server",include=F}
+```{r us_detect_click,context="server",include=F}
 region_click_state <- reactive(label="usmapclick", {
   
   if (is.null(input$usview_click)) {NA}
@@ -1464,7 +1472,9 @@ region_click_state <- reactive(label="usmapclick", {
     else {out}
   }
 })
+```
 
+```{r data_for_us_charts,context="server",include=F}
 us_case_summary <- reactive(label="us_case_summary", {
   cases <- us_cases_state_county()
   click_state <- region_click_state()
@@ -1499,11 +1509,11 @@ click_state_name <- reactive({
 })
 ```
 
-```{r us_cumulative_server,context="server"}
+```{r us_cumulative,context="server"}
 output$uscaseslinear <- renderHighchart({
   req(input$uslog)
   highchart() %>% 
-    hc_title(text=paste0("Confirmed Cases, Hosp. and Deaths (", isolate(click_state_name()), ")")) %>%
+    hc_title(text=paste0("Cases, Hosp. and Deaths (", isolate(click_state_name()), ")")) %>%
     hc_yAxis(title="", type=input$uslog, 
              min = if_else(input$uslog == "linear", 0, 1)
              ) %>%
@@ -1522,7 +1532,7 @@ output$uscaseslinear <- renderHighchart({
 ```
 
 
-```{r usewcases,context="server",include=F}
+```{r us_daily_new_cases,context="server",include=F}
 output$usdailynewcases <- renderHighchart(
   highchart() %>% 
     hc_title(text=paste0("Daily New Cases (", isolate(click_state_name()), ")")) %>%
@@ -1544,7 +1554,7 @@ output$usdailynewcases <- renderHighchart(
 ```
 
 
-```{r us_growth_server,context="server",include=F}
+```{r us_growth,context="server",include=F}
 output$us_growth_rate <- renderHighchart(
   highchart() %>% 
     hc_title(text=paste0("Growth Rate (", isolate(click_state_name()), ")")) %>%
@@ -1577,12 +1587,12 @@ output$us_growth_rate <- renderHighchart(
 )
 ```
 
-```{r ustesting_cumulative,context="server",include=F}
+```{r us_testing_cumulative,context="server",include=F}
 output$ustesting <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
     hc_title(text=paste0("Cumulative Testing (", isolate(click_state_name()), ")")) %>%
-    hc_yAxis(title="") %>%
+    hc_yAxis(title="", min=0) %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(data = us_case_summary() %>% 
                     select(date, Positive=Cases, Negative=cum_negative, Pending=pending) %>% 
@@ -1594,12 +1604,12 @@ output$ustesting <- renderHighchart(
 ```
 
 
-```{r ustestinginc_server,context="server",include=F}
+```{r us_testing_daily,context="server",include=F}
 output$ustestinginc <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
     hc_title(text=paste0("Daily Testing (", isolate(click_state_name()), ")")) %>%
-    hc_yAxis(title="") %>%
+    hc_yAxis(title="", min=0) %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(data = us_case_summary() %>% 
                     select(date, Positive=`New Cases`, Negative=negativeIncrease) %>% 
@@ -1610,22 +1620,24 @@ output$ustestinginc <- renderHighchart(
 )
 ```
 
-```{r ustestingresults_server,context="server",include=F}
+```{r us_testing_pos_rate,context="server",include=F}
 output$ustestingrate <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
     hc_title(text=paste0("Positive Rate (", isolate(click_state_name()), ")")) %>%
-    hc_yAxis(title="") %>%
+    hc_yAxis(title="", min=0) %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(data = us_case_summary() %>% 
+                    filter(date >= dmy("1/3/2020")) %>% 
                     select(date, `Positive Rate`= cum_pos_rate), 
                   type="line", 
+                  name="Positive Rate",
                   mapping=hcaes(x=date, y=`Positive Rate`))
 )
 ```
 
 
-```{r us_charts_tabset}
+```{r us_charts}
 tabsetPanel(type="tabs", 
             tabPanel("Growth", 
                      fluidRow(

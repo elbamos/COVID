@@ -196,7 +196,6 @@ save(zip_geoms, file="zip_geoms.Rda")
 ```{r supplement_data,include=F,context="server-start"}
 supplement_data_for_growth <- function(x) x %>% 
   mutate(
-    pos_rate = cases / (cases + negative),
     penetrance = cases / housing_units,
     hosp_rate = hospitalized / cases, 
     icu_rate = icu / hospitalized, 
@@ -248,6 +247,23 @@ supplement_data_for_growth <- function(x) x %>%
       if_else(! is.na(new_cases_ma), paste0(params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>"), ""), 
       if_else(! is.na(cases_growth_rate_ma), paste0(params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>"), ""),
       if_else(!is.na(active_case_growth_rate_ma), paste0(params$k, "-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
+    )
+  )
+
+supplement_testing_data <- function(x) x %>% 
+  mutate(
+    cum_negative = cumsum(negativeIncrease), 
+    cum_pos_rate = cases / (cases + cum_negative), 
+    pos_rate = positiveIncrease / (positiveIncrease + negativeIncrease), 
+    tests = pending + positiveIncrease + negativeIncrease, 
+    tests_per_cap = (tests / pop) * 100000, 
+    tests_per_cap_ma = rollmeanr(tests_per_cap, k=params$k, fill=NA), 
+    text_testing = paste0(
+      if_else(!is.na(tests), paste0("Tests Performed: ", tests, "<br/>"), ""),
+      if_else(!is.na(tests_per_cap), paste0(params$k, "-Day Trailing Average Daily Tests / 100,000 ppl: ", round(tests_per_cap, 1), "<br/>"), ""), 
+      if_else(!is.na(pending), paste0("Test Backlog: ", pending, "<br/>"), ""),
+      if_else(!is.na(pos_rate), paste0("Daily Positive Rate: ", round(pos_rate * 100), "%<br/>"), ""),
+      if_else(!is.na(cum_pos_rate), paste0("Positive Rate So Far: ", round(cum_pos_rate * 100), "%<br/>"), "")
     )
   )
 ```
@@ -590,7 +606,9 @@ palletes <- list(
   icu_rate = "magma", 
   vent_rate = "viridis",
   rate = "inferno", # infection_rate
-  penetrance = "plasma"
+  penetrance = "plasma",
+  pos_rate = "RdYlGn", 
+  tests_per_cap_ma = "RdPu"
 )
 
 get_ranges <- function(x, label) {
@@ -667,20 +685,6 @@ get_vis_elements <- function(x, label) reactive(label=label, {
       legend_vals = quote(log10(ranges[["pop_density"]]$log_rng)),
       legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
     ),
-    "Housing Density" = list(
-      field = "housing_density",
-      pal = quote(log10(housing_density)),
-      legend_bins = 6,
-      legend_vals = quote(log10(ranges[["housing_density"]]$log_rng)),
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " homes / sqmi")
-    ),
-    "Occupancy Density" = list(
-      field = "occupancy_density",
-      pal = quote(log10(occupancy_density)),
-      legend_bins = 4,
-      legend_vals = quote(log10(ranges[["occupancy_density"]]$log_rng)),
-      legend_trans = labelFormat(suffix = "ppl / home")
-    ),
     "Active Cases" = list(
       field = "active_cases",
       pal = quote(log10(active_cases)),
@@ -701,6 +705,20 @@ get_vis_elements <- function(x, label) reactive(label=label, {
       legend_bins=4, 
       legend_vals=quote(c(0, 1)), 
       legend_trans=labelFormat(transform=identity, suffix=" Ventilator / ICU Admission")
+    ),
+    "Daily Testing Moving Average" = list(
+      field = "tests_per_cap_ma", 
+      pal = quote(tests_per_cap_ma), 
+      legend_bins = 3, 
+      legend_vals = ranges[["tests_per_cap_ma"]]$rng, 
+      legend_trans = labelFormat(transform=identity, suffix=" Tests / 100,000 ppl")
+    ), 
+    "Positive Test Rate" = list(
+      field = "pos_rate", 
+      pal = quote(-pos_rate), 
+      legend_bins=4, 
+      legend_vals = -c(0, 1), 
+      legend_trans = labelFormat(transform=function(x) - x)
     )
   ) %>%
     keep(~ .$field %in% names(ranges)) %>%
@@ -775,9 +793,11 @@ adjust_legend <- function(map, groups, vis_options) {
 if (! exists("input")) {
   input <- list(
     worlddate = Sys.Date() - 1, 
-    usdate = Sys.Date() - 1, 
     worldscale = "linear", 
     worldmincases = 1,
+    usdate = Sys.Date() - 1, 
+    usscale = "State",
+    usmincases = 1,
     cityselection = "New York",
     curve_flattening_min_cases = 1000
   )
@@ -808,8 +828,7 @@ tagList(
   p("The US view shows detailed information about the pandemic by US State and County."),
   p("Use the icon in the upper right hand corner of the map to select data to view."),
   p("The 'Active Case Growth Rate Moving Average', for example, shows whether the burden on health care is increasing or decreasing in each region."), 
-  h3("US Testing"),
-  p("The US Testing pane shows the progress in testing roll-out, country-wide and by state."),
+  p("The data formerly shown on the US Testing pane is now shown in a tab on this page."),
   h3("Cities"),
   p("The cities pane shows close-up views of New York City and the San Francisco Bay Area"), 
   h3("Curve Flattening"),
@@ -1282,7 +1301,7 @@ output$usinputs <- renderUI({
       "usmincases", 
       "Minimum Number of Cases", 
       choices = 10^(0:3),
-      selected = 1
+      selected = 100
     )
   )
 })
@@ -1310,7 +1329,7 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography
       rename(state = Sublocation, county = Subsublocation) %>%
       left_join(covid_tracker %>% 
                   select(date, loc_id, 
-                         negative, pending, 
+                         negativeIncrease, pending, positiveIncrease,
                          hospitalized = hospitalizedCurrently, 
                          icu = inIcuCurrently, 
                          vent = onVentilatorCurrently, 
@@ -1325,7 +1344,14 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography
   ) %>%
   group_by(loc_id) %>%
   arrange(date) %>%
+  mutate_at(vars(negativeIncrease, pending, positiveIncrease), ~ case_when(
+    us_level == "County" ~ NA_integer_, 
+    is.na(.) ~ 0L, 
+    TRUE ~ .
+  )) %>%
+  mutate_at(vars(hospitalized, icu, vent, recovered), ~ na.locf(., na.rm=F)) %>% 
   supplement_data_for_growth() %>% 
+  supplement_testing_data() %>%
   ungroup() %>% 
   mutate(
     popup = paste0(
@@ -1335,7 +1361,9 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography
       "<hr/>", 
       case_rates, 
       "<hr/>", 
-      growth_rates
+      growth_rates, 
+      "<hr/>", 
+      text_testing
     ),
     popup = map(popup, HTML)
   )
@@ -1422,12 +1450,12 @@ leafletOutput("usview")
 ```
 
 
-Row 
+Row
 ------------------------------------------------------------------
 
-### US Cases
+###
 
-```{r data_for_us_charts,context="server",include=F}
+```{r us_detect_click,context="server",include=F}
 region_click_state <- reactive(label="usmapclick", {
   
   if (is.null(input$usview_click)) {NA}
@@ -1445,7 +1473,9 @@ region_click_state <- reactive(label="usmapclick", {
     else {out}
   }
 })
+```
 
+```{r data_for_us_charts,context="server",include=F}
 us_case_summary <- reactive(label="us_case_summary", {
   cases <- us_cases_state_county()
   click_state <- region_click_state()
@@ -1454,7 +1484,8 @@ us_case_summary <- reactive(label="us_case_summary", {
     cases %<>% 
       group_by(date) %>% 
       summarize_if(is.numeric, ~sum(., na.rm=T)) %>%
-      supplement_data_for_growth()
+      supplement_data_for_growth() %>%
+      supplement_testing_data()
   } else {
     cases %<>% 
       filter(loc_id == click_state$loc_id[1])
@@ -1464,6 +1495,7 @@ us_case_summary <- reactive(label="us_case_summary", {
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
+           cum_negative, pending, negativeIncrease, cum_pos_rate, 
            `New Cases` = cases_new, new_cases_ma, cases_growth_rate, cases_growth_rate_ma) 
   
 })
@@ -1478,11 +1510,11 @@ click_state_name <- reactive({
 })
 ```
 
-```{r us_cumulative_server,context="server"}
+```{r us_cumulative,context="server"}
 output$uscaseslinear <- renderHighchart({
   req(input$uslog)
   highchart() %>% 
-    hc_title(text=paste0("Confirmed Cases, Hosp. and Deaths (", isolate(click_state_name()), ")")) %>%
+    hc_title(text=paste0("Cases, Hosp. and Deaths (", isolate(click_state_name()), ")")) %>%
     hc_yAxis(title="", type=input$uslog, 
              min = if_else(input$uslog == "linear", 0, 1)
              ) %>%
@@ -1491,7 +1523,7 @@ output$uscaseslinear <- renderHighchart({
       type="line",
       marker=list(enabled=F), 
       data=us_case_summary() %>% 
-        select(-new_cases_ma, -cases_growth_rate, -cases_growth_rate_ma) %>% 
+        select(date, Cases, Deaths, Hospitalized, ICU, Ventilator, Recovered) %>% 
         gather(key="Series", value="val", -date) %>%
         filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
@@ -1500,14 +1532,8 @@ output$uscaseslinear <- renderHighchart({
 })
 ```
 
-```{r us_cumulative_output}
-highchartOutput("uscaseslinear")
-```
 
-
-### New Cases Per Day
-
-```{r usewcases,context="server",include=F}
+```{r us_daily_new_cases,context="server",include=F}
 output$usdailynewcases <- renderHighchart(
   highchart() %>% 
     hc_title(text=paste0("Daily New Cases (", isolate(click_state_name()), ")")) %>%
@@ -1528,13 +1554,8 @@ output$usdailynewcases <- renderHighchart(
 )
 ```
 
-```{r usnewcasesoutput}
-highchartOutput("usdailynewcases")
-```
 
-### Growth Rate (new cases / prior cases)
-
-```{r us_growth_server,context="server",include=F}
+```{r us_growth,context="server",include=F}
 output$us_growth_rate <- renderHighchart(
   highchart() %>% 
     hc_title(text=paste0("Growth Rate (", isolate(click_state_name()), ")")) %>%
@@ -1567,110 +1588,76 @@ output$us_growth_rate <- renderHighchart(
 )
 ```
 
-```{r us_growth_output}
-highchartOutput("us_growth_rate")
-```
-
-US Testing
-=====================================================
-
-Inputs {.sidebar}
------------------------------------------------------------------------
-
-```{r ustesting_input}
-tagList(
-  checkboxGroupInput("testingstates", label = "States to Show", 
-                     choices = state.name, 
-                     selected=state.name)
-)
-```
-
-Row
------------------------------------------------------
-
-```{r ustesting_filter,context="server",include=F}
-covid_track_filtered <- reactive(dataset$covid_track() %>% 
-                                   semi_join(
-                                     locations %>% filter(Sublocation %in% input$testingstates,
-                                                          is.na(Subsublocation))
-                                   )
-)
-```
-
-### US Testing (Cumulative)
-
-```{r ustesting,context="server",include=F}
+```{r us_testing_cumulative,context="server",include=F}
 output$ustesting <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
-    hc_title(text="Cumulative US Testing") %>%
-    hc_yAxis(title="") %>%
-    hc_xAxis(type="datetime") %>% 
-    hc_add_series(data = covid_track_filtered() %>% 
-                    select(date, positive, negative, pending) %>% 
-                    group_by(date) %>% 
-                    summarize_all(~sum(., na.rm=T)) %>%
-                    gather(key="Series", val="val", -date), 
-                  type="column", 
-                  mapping=hcaes(x=date, y=val, group=Series, fill=Series))
-)
-```
-```{r ustestingoutput}
-highchartOutput("ustesting")
-```
-
-### US Testing (Incremental)
-
-```{r ustestinginc_server,context="server",include=F}
-output$ustestinginc <- renderHighchart(
-  highchart()  %>%
-    hc_plotOptions(column=list(stacking="normal")) %>%
-    hc_title(text="Incremental US Testing") %>%
-    hc_yAxis(title="") %>%
-    hc_xAxis(type="datetime") %>% 
-    hc_add_series(data = covid_track_filtered() %>% 
-                    select(date, positive, negative) %>% 
-                    group_by(date) %>% 
-                    summarize_all(~sum(., na.rm=T)) %>%
-                    arrange(date) %>%
-                    mutate_if(is.numeric, ~ . - lag(., 1L, default=0)) %>%
-                    gather(key="Series", val="val", -date), 
-                  type="column", 
-                  mapping=hcaes(x=date, y=val, group=Series, fill=Series))
-)
-```
-```{r ustestinginc_output}
-highchartOutput("ustestinginc")
-```
-
-Row
----------------------------------------------------
-
-### Tests Per Day By State
-
-```{r testsperdaybystate_server,context="server",include=F}
-output$ustestingbystateinc <- renderHighchart(
-  highchart() %>%
-    hc_title(text="Daily Testing By State") %>%
-    hc_xAxis(type="datetime") %>% 
+    hc_title(text=paste0("Cumulative Testing (", isolate(click_state_name()), ")")) %>%
     hc_yAxis(title="", min=0) %>%
-    hc_add_series(
-      data=covid_track_filtered() %>% 
-        select(date, positiveIncrease, negativeIncrease, loc_id) %>% 
-        mutate(tests = positiveIncrease + negativeIncrease) %>%
-        select(-positiveIncrease, -negativeIncrease) %>% 
-        inner_join(locations %>% select(loc_id, state=Sublocation)) %>% 
-        select(-loc_id),
-      mapping=hcaes(x=date, y=tests, group=state),
-      type="line",
-      marker=list(enabled=F)
-    ) %>%
+    hc_xAxis(type="datetime") %>% 
+    hc_add_series(data = us_case_summary() %>% 
+                    select(date, Positive=Cases, Negative=cum_negative, Pending=pending) %>% 
+                    gather(key="Series", val="val", -date), 
+                  type="column", 
+                  mapping=hcaes(x=date, y=val, group=Series, fill=Series)) %>%
     hc_tooltip(shared=T)
 )
 ```
-```{r testsperdaybystate_output}
-highchartOutput("ustestingbystateinc")
+
+
+```{r us_testing_daily,context="server",include=F}
+output$ustestinginc <- renderHighchart(
+  highchart()  %>%
+    hc_plotOptions(column=list(stacking="normal")) %>%
+    hc_title(text=paste0("Daily Testing (", isolate(click_state_name()), ")")) %>%
+    hc_yAxis(title="", min=0) %>%
+    hc_xAxis(type="datetime") %>% 
+    hc_add_series(data = us_case_summary() %>% 
+                    select(date, Positive=`New Cases`, Negative=negativeIncrease) %>% 
+                    gather(key="Series", val="val", -date), 
+                  type="column", 
+                  mapping=hcaes(x=date, y=val, group=Series, fill=Series)) %>%
+    hc_tooltip(shared=T)
+)
 ```
+
+```{r us_testing_pos_rate,context="server",include=F}
+output$ustestingrate <- renderHighchart(
+  highchart()  %>%
+    hc_plotOptions(column=list(stacking="normal")) %>%
+    hc_title(text=paste0("Positive Rate (", isolate(click_state_name()), ")")) %>%
+    hc_yAxis(title="", min=0) %>%
+    hc_xAxis(type="datetime") %>% 
+    hc_add_series(data = us_case_summary() %>% 
+                    filter(date >= dmy("1/3/2020")) %>% 
+                    select(date, `Positive Rate`= cum_pos_rate), 
+                  type="line", 
+                  name="Positive Rate",
+                  mapping=hcaes(x=date, y=`Positive Rate`))
+)
+```
+
+
+```{r us_charts}
+tabsetPanel(type="tabs", 
+            tabPanel("Growth", 
+                     fluidRow(
+                       column(4, highchartOutput("uscaseslinear")),
+                       column(4, highchartOutput("usdailynewcases")),
+                       column(4, highchartOutput("us_growth_rate"))
+                     )
+            ), 
+            tabPanel("Testing", 
+                     fluidRow(
+                       column(4, highchartOutput("ustesting")),
+                       column(4, highchartOutput("ustestinginc")), 
+                       column(4, highchartOutput("ustestingrate"))
+                       
+                     )
+            )
+)
+```
+
 
 Cities 
 ===================================================

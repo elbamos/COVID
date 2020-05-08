@@ -8,10 +8,8 @@ runtime: shiny_prerendered
 ---
 
 ```{r todods,include=F}
-# TODO: Some growth rates are unnecessarily NA
-# TODO: Add view of proportion of tests that are positive to the US view
-# TODO: add deselect all to us testing page
 # TODO: Animate the bar charts next to the maps
+# TODO: Find country populations
 ```
 
 ```{r setup,context="setup",include=FALSE}
@@ -1477,7 +1475,7 @@ region_click_state <- reactive(label="usmapclick", {
 
 ```{r data_for_us_charts,context="server",include=F}
 us_case_summary <- reactive(label="us_case_summary", {
-  cases <- us_cases_state_county()
+  cases <- us_cases_state_county() %>% ungroup()
   click_state <- region_click_state()
 
   if (is.na(click_state)) {

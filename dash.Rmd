@@ -192,13 +192,42 @@ save(zip_geoms, file="zip_geoms.Rda")
 ```
 
 ```{r supplement_data,include=F,context="server-start"}
-supplement_data_for_growth <- function(x) x %>% 
+supplement_data_for_medical <- function(x) x %>% 
+  mutate(
+    hosp_rate = hospitalized / cases,
+    
+    active_cases = cases - (recovered + deaths), 
+    active_case_growth = active_cases - dplyr::lag(active_cases, 1, default=0), 
+    active_case_growth_rate = active_case_growth / dplyr::lag(active_cases, 1),
+    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=params$k, fill=NA),
+    
+    text_medical = paste0(
+      if_else(!is.na(active_cases), paste0("Active Cases: ", active_cases, "<br/>"), ""),
+      if_else(!is.na(hospitalized), paste0("Hospitalized: ", hospitalized, "<br/>"), ""),
+      if_else(!is.na(icu), paste0("ICU: ", icu, "<br/>"), ""),
+      if_else(!is.na(vent), paste0("Ventilator: ", vent, "<br/>"), ""),
+      if_else(!is.na(recovered), paste0("Recovered: ", recovered, "<br/>"), ""),
+      if_else(!is.na(active_case_growth_rate_ma), paste0(params$k, "-Day Trailing Average Change in Active Cases / Day: ", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
+    )
+  )
+
+supplement_data_for_demographics <- function(x) x %>% 
   mutate(
     penetrance = cases / housing_units,
-    hosp_rate = hospitalized / cases, 
-    icu_rate = icu / hospitalized, 
-    vent_rate = vent / icu,
+    pop_density = pop / landsqmi,
+    housing_density = housing_units / landsqmi,
+    occupancy_density = pop / housing_units,
     
+    text_demographics = paste0(
+      if_else(!is.na(pop), paste0("Population: ", pop, "<br/>"), ""), 
+      if_else(!is.na(pop_density), paste0("Density: ", round(pop_density, 4), " ppl/sqmi<br/>"), ""),
+      if_else(is.na(housing_density), paste0( "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>"), ""),
+      if_else(!is.na(penetrance), paste0("Penetrance: ", round(penetrance, 3), " cases / household<br/>"), "")
+    )
+  )
+
+supplement_data_for_growth <- function(x) x %>% 
+  mutate(
     rate = round((cases / pop) * 100000),
     cases_new = cases - lag(cases, 1, default = 0),
     cases_growth_rate = case_when(
@@ -206,49 +235,28 @@ supplement_data_for_growth <- function(x) x %>%
       lag(cases, 1) == 0 ~ .1, 
       TRUE ~ (cases_new / lag(cases, 1))
     ) ,
-    active_cases = cases - (recovered + deaths), 
-    active_case_growth = active_cases - dplyr::lag(active_cases, 1, default=0), 
-    active_case_growth_rate = active_case_growth / dplyr::lag(active_cases, 1),
     
     new_cases_ma = rollmeanr(cases_new, k=params$k, fill=NA),
     cases_growth_rate_ma = rollmeanr(cases_growth_rate, k=params$k, fill=NA),
-    active_case_growth_rate_ma = rollmeanr(active_case_growth_rate, k=params$k, fill=NA),
-    
-    pop_density = pop / landsqmi,
-    housing_density = housing_units / landsqmi,
-    occupancy_density = pop / housing_units,
     
     had_increase = cases_new > new_cases_ma, 
     hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=1) + dplyr::lag(had_increase, 2, default=1)) == 3, 
     
-    demographics = paste0(
-      if_else(!is.na(pop), paste0("Population: ", pop, "<br/>"), ""), 
-      if_else(!is.na(pop_density), paste0("Density: ", round(pop_density, 4), " ppl/sqmi<br/>"), ""),
-      if_else(is.na(housing_density), paste0( "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>"), "")
-    ), 
-    
-    case_rates = paste0(
-      if_else(!is.na(active_cases), paste0("Active Cases: ", active_cases, "<br/>"), ""),
+    text_case = paste0(
       if_else(!is.na(cases), paste0("Confirmed Cases: ", cases, "<br/>"), ""), 
       if_else(!is.na(rate), paste0("Infection Rate: ", rate, " / 100,000 ppl<br/>"), ""),
-      if_else(!is.na(penetrance), paste0("Penetrance: ", round(penetrance, 3), " cases / household<br/>"), ""),
-      if_else(!is.na(deaths), paste0("Deaths: ", deaths, "<br/>"), ""),
-      if_else(!is.na(hospitalized), paste0("Hospitalized: ", hospitalized, "<br/>"), ""),
-      if_else(!is.na(icu), paste0("ICU: ", icu, "<br/>"), ""),
-      if_else(!is.na(vent), paste0("Ventilator: ", vent, "<br/>"), ""),
-      if_else(!is.na(recovered), paste0("Recovered: ", recovered, "<br/>"), "")
+      if_else(!is.na(deaths), paste0("Deaths: ", deaths, "<br/>"), "")
     ), 
     
-    growth_rates = paste0(
+    text_growth = paste0(
       if_else(! is.na(cases_new), paste0("New Cases: ", cases_new, "<br/>"), ""), 
       if_else(! is.na(cases_growth_rate), paste0("Growth: ", round(cases_growth_rate, 3), " d/d<br/>"), ""),
       if_else(! is.na(new_cases_ma), paste0(params$k, "-Day Trailing Average New Cases / Day: ", round(new_cases_ma), "<br/>"), ""), 
-      if_else(! is.na(cases_growth_rate_ma), paste0(params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>"), ""),
-      if_else(!is.na(active_case_growth_rate_ma), paste0(params$k, "-Day Trailing Average Change in Active Cases / Day", round(active_case_growth_rate_ma * 100, 1), "%<br/>"), "")
+      if_else(! is.na(cases_growth_rate_ma), paste0(params$k, "-Day Trailing Average Growth / Day: ", round(cases_growth_rate_ma * 100, 1), "%<br/>"), "")
     )
   )
 
-supplement_testing_data <- function(x) x %>% 
+supplement_data_for_testing <- function(x) x %>% 
   mutate(
     cum_negative = cumsum(negativeIncrease), 
     cum_pos_rate = cases / (cases + cum_negative), 
@@ -256,6 +264,9 @@ supplement_testing_data <- function(x) x %>%
     tests = pending + positiveIncrease + negativeIncrease, 
     tests_per_cap = (tests / pop) * 100000, 
     tests_per_cap_ma = rollmeanr(tests_per_cap, k=params$k, fill=NA), 
+
+    pos_rate_ma = rollsumr(positiveIncrease, k=params$k, fill=NA) / rollsumr(tests, k=params$k, fill=NA),
+
     text_testing = paste0(
       if_else(!is.na(tests), paste0("Tests Performed: ", tests, "<br/>"), ""),
       if_else(!is.na(tests_per_cap), paste0(params$k, "-Day Trailing Average Daily Tests / 100,000 ppl: ", round(tests_per_cap, 1), "<br/>"), ""), 
@@ -414,6 +425,7 @@ world_cases_jh <- reactive({
       vent = NA_real_,
       negative = NA_real_
     ) %>% 
+    supplement_data_for_medical() %>%
     supplement_data_for_growth() 
 })
 ```
@@ -1011,9 +1023,11 @@ world_cases <- reactive({
                      TRUE ~ Location
                    ),
                    "</font><br/>", 
-                   case_rates, 
+                   text_case, 
                    "<hr/>", 
-                   growth_rates
+                   text_growth, 
+                   "<hr/>",
+                   text_medical
       ),
       popup=map(popup, HTML)
     ) 
@@ -1131,6 +1145,7 @@ world_case_summary <- reactive(label="world_case_summary", {
      #select(-loc_id) %>%
      summarize_if(is.numeric, ~sum(., na.rm=T)) %>% 
       arrange(date) %>% 
+      supplement_data_for_medical() %>% 
       supplement_data_for_growth()
   } else {
     cases_input %>% 
@@ -1318,21 +1333,12 @@ Row
 us_geography_data <- geometries %>% data.frame() %>%
   select(aland, housing_units, pop, loc_id)
 
-make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography_data %>%
-  inner_join(
-    county_cases %>%
-      bind_rows(state_cases) %>% 
-      filter(cases > 0) %>%
-      inner_join(locations) %>%
-      rename(state = Sublocation, county = Subsublocation) %>%
-      left_join(covid_tracker %>% 
-                  select(date, loc_id, 
-                         negativeIncrease, pending, positiveIncrease,
-                         hospitalized = hospitalizedCurrently, 
-                         icu = inIcuCurrently, 
-                         vent = onVentilatorCurrently, 
-                         recovered)), 
-    by = "loc_id"
+process_us_cases <- function(x) us_geography_data %>%
+  inner_join(x %>% 
+        filter(cases > 0) %>%
+        inner_join(locations) %>%
+        rename(state = Sublocation, county = Subsublocation), 
+      by="loc_id"
   ) %>%
   mutate(
     landsqmi = aland / 2591646,
@@ -1342,34 +1348,62 @@ make_us_cases <- function(county_cases, state_cases, covid_tracker) us_geography
   ) %>%
   group_by(loc_id) %>%
   arrange(date) %>%
-  mutate_at(vars(negativeIncrease, pending, positiveIncrease), ~ case_when(
-    us_level == "County" ~ NA_integer_, 
-    is.na(.) ~ 0L, 
-    TRUE ~ .
-  )) %>%
-  mutate_at(vars(hospitalized, icu, vent, recovered), ~ na.locf(., na.rm=F)) %>% 
-  supplement_data_for_growth() %>% 
-  supplement_testing_data() %>%
-  ungroup() %>% 
+  supplement_data_for_demographics() %>%
+  supplement_data_for_growth() %>%
   mutate(
     popup = paste0(
       "<font color='blue'>", if_else(is.na(county), state, paste0(county, ", ", state)), "     ", format(date, "%B %d, %Y"), "</font><br/>",
       "<hr>",
-      demographics, 
+      text_case, 
       "<hr/>", 
-      case_rates, 
+      text_growth,
       "<hr/>", 
-      growth_rates, 
-      "<hr/>", 
-      text_testing
-    ),
-    popup = map(popup, HTML)
+      text_demographics
+    )
   )
 
+us_cases_state <- reactive(
+  dataset$cases_state_nyt() %>% 
+    left_join(dataset$covid_track() %>% 
+                  select(date, loc_id, 
+                         negativeIncrease, pending, positiveIncrease,
+                         hospitalized = hospitalizedCurrently, 
+                         icu = inIcuCurrently, 
+                         vent = onVentilatorCurrently, 
+                         recovered)
+    ) %>% 
+    process_us_cases() %>%
+    mutate_at(vars(negativeIncrease, pending, positiveIncrease), ~ case_when(
+      is.na(.) ~ 0L, 
+      TRUE ~ .
+    )) %>%
+    mutate_at(vars(hospitalized, icu, vent, recovered), ~ na.locf(., na.rm=F)) %>%     
+    supplement_data_for_medical() %>%
+    supplement_data_for_testing() %>%
+    mutate(
+      popup = paste0(popup, 
+                     "<hr/>",
+                     text_testing, "<hr/>",
+                     text_medical)
+    )
+)
 
-us_cases_all <- reactive(make_us_cases(dataset$cases_county_nyt(), 
-                                            dataset$cases_state_nyt(),
-                                            dataset$covid_track()))
+us_cases_county <- reactive(
+  dataset$cases_county_nyt() %>% 
+    process_us_cases() %>%
+    mutate(
+      negativeIncrease = NA, 
+      pending = NA, 
+      positiveIncrease = NA, 
+      hospitalized = NA, 
+      icu = NA, 
+      vent = NA, 
+      recovered = NA
+    ) %>% 
+    supplement_data_for_medical() %>%
+    supplement_data_for_testing() %>%
+    mutate(popup = paste0(popup, "<hr/>", text_demographics))
+)
 ```
 
 ```{r usmap_data_filtration,context="server",include=F}
@@ -1377,16 +1411,20 @@ us_cases_state_county <- reactive({
   req(input$usscale)
   scale <- input$usscale
   
-  us_cases_all() %>%
+  (
+    if (scale == "County") us_cases_county()
+    else us_cases_state()
+  ) %>% 
     filter(
-      (scale == "County" & ! is.na(county)) | (scale == "State" & is.na(county)),
       cases >= input$usmincases
-    ) 
+    ) %>%
+    mutate(
+      popup = map(popup, HTML)
+    )
 })
 
 us_cases_date_filtered <- reactive({
   req(input$usdate)
-  req(input$usmincases)
 
   us_cases_state_county() %>% 
     filter(
@@ -1475,25 +1513,24 @@ region_click_state <- reactive(label="usmapclick", {
 
 ```{r data_for_us_charts,context="server",include=F}
 us_case_summary <- reactive(label="us_case_summary", {
-  cases <- us_cases_state_county() %>% ungroup()
   click_state <- region_click_state()
 
-  if (is.na(click_state)) {
-    cases %<>% 
+  (if (is.na(click_state)) {
+    us_cases_state() %>% 
+      ungroup() %>% 
       group_by(date) %>% 
       summarize_if(is.numeric, ~sum(., na.rm=T)) %>%
       supplement_data_for_growth() %>%
-      supplement_testing_data()
+      supplement_data_for_testing() %>%
+      filter(cases >= input$usmincases)
   } else {
-    cases %<>% 
+    us_cases_state_county() %>% ungroup() %>% 
       filter(loc_id == click_state$loc_id[1])
-  }
-
-  cases %>% 
+  }) %>%
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
-           cum_negative, pending, negativeIncrease, cum_pos_rate, 
+           cum_negative, pending, negativeIncrease, cum_pos_rate, pos_rate_ma, 
            `New Cases` = cases_new, new_cases_ma, cases_growth_rate, cases_growth_rate_ma) 
   
 })
@@ -1628,10 +1665,10 @@ output$ustestingrate <- renderHighchart(
     hc_xAxis(type="datetime") %>% 
     hc_add_series(data = us_case_summary() %>% 
                     filter(date >= dmy("1/3/2020")) %>% 
-                    select(date, `Positive Rate`= cum_pos_rate), 
+                    select(date, `Cumulative`= cum_pos_rate, `Trailing Days`=pos_rate_ma) %>% 
+                    gather(key="Series", value="value", -date), 
                   type="line", 
-                  name="Positive Rate",
-                  mapping=hcaes(x=date, y=`Positive Rate`))
+                  mapping=hcaes(x=date, y=value, group=Series))
 )
 ```
 

@@ -1471,13 +1471,12 @@ observe(label="update_usmap", {
 observeEvent(input$usview_groups, 
              label="handle_usmap_legend", {
   
-  req(us_vis_options)
   map <- leafletProxy('usview') %>% 
     clearControls() 
   
   selection <- isolate(input$usview_groups)
   
-  adjust_legend(map, selection, us_vis_options())
+  adjust_legend(map, selection, req(us_vis_options()))
 })
 ```
 
@@ -1546,47 +1545,46 @@ click_state_name <- reactive({
 ```
 
 ```{r us_cumulative,context="server"}
-output$uscaseslinear <- renderHighchart({
-  req(input$uslog)
+output$uscaseslinear <- renderHighchart(
   highchart() %>% 
     hc_title(text=paste0("Cases, Hosp. and Deaths (", isolate(click_state_name()), ")")) %>%
-    hc_yAxis(title="", type=input$uslog, 
-             min = if_else(input$uslog == "linear", 0, 1)
+    hc_yAxis(title="", type=req(input$uslog), 
+             min = if_else(isolate(input$uslog) == "linear", 0, 1)
              ) %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(
       type="line",
       marker=list(enabled=F), 
-      data=us_case_summary() %>% 
+      data=req(us_case_summary()) %>% 
         select(date, Cases, Deaths, Hospitalized, ICU, Ventilator, Recovered) %>% 
         gather(key="Series", value="val", -date) %>%
         filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
     ) %>%
     hc_tooltip(shared=T)
-})
+)
 ```
 
 
 ```{r us_daily_new_cases,context="server",include=F}
-output$usdailynewcases <- renderHighchart(
+output$usdailynewcases <- renderHighchart({
   highchart() %>% 
     hc_title(text=paste0("Daily New Cases (", isolate(click_state_name()), ")")) %>%
     hc_xAxis(type="datetime") %>%
-    hc_yAxis(title="", type=input$uslog, min=1) %>% 
+    hc_yAxis(title="", type=req(input$uslog), min=1) %>% 
     hc_add_series(type="column", 
-                  data=us_case_summary(), 
+                  data=req(us_case_summary()), 
                   mapping=hcaes(x=date, y=`New Cases`),
                   name="New Cases") %>%
     hc_add_series(
       type="line", 
       color="red", 
       marker=list(enabled=F), 
-      data=isolate(us_case_summary() %>% select(date, new_cases_ma)),
+      data=isolate(isolate(us_case_summary()) %>% select(date, new_cases_ma)),
       mapping=hcaes(x=date, y=new_cases_ma), 
       name=paste0(params$k, "-day moving average")
     )
-)
+})
 ```
 
 
@@ -1602,7 +1600,7 @@ output$us_growth_rate <- renderHighchart(
     hc_add_series(
       type="line", 
       marker=list(enabled=F), 
-      data=us_case_summary() %>% 
+      data=req(us_case_summary()) %>% 
         select(
           date, 
           `Growth Rate` = cases_growth_rate, 
@@ -1630,7 +1628,7 @@ output$ustesting <- renderHighchart(
     hc_title(text=paste0("Cumulative Testing (", isolate(click_state_name()), ")")) %>%
     hc_yAxis(title="", min=0) %>%
     hc_xAxis(type="datetime") %>% 
-    hc_add_series(data = us_case_summary() %>% 
+    hc_add_series(data = req(us_case_summary()) %>% 
                     select(date, Positive=Cases, Negative=cum_negative, Pending=pending) %>% 
                     gather(key="Series", val="val", -date), 
                   type="column", 
@@ -1647,7 +1645,7 @@ output$ustestinginc <- renderHighchart(
     hc_title(text=paste0("Daily Testing (", isolate(click_state_name()), ")")) %>%
     hc_yAxis(title="", min=0) %>%
     hc_xAxis(type="datetime") %>% 
-    hc_add_series(data = us_case_summary() %>% 
+    hc_add_series(data = req(us_case_summary()) %>% 
                     select(date, Positive=`New Cases`, Negative=negativeIncrease) %>% 
                     gather(key="Series", val="val", -date), 
                   type="column", 
@@ -1663,7 +1661,7 @@ output$ustestingrate <- renderHighchart(
     hc_title(text=paste0("Positive Rate (", isolate(click_state_name()), ")")) %>%
     hc_yAxis(title="", min=0) %>%
     hc_xAxis(type="datetime") %>% 
-    hc_add_series(data = us_case_summary() %>% 
+    hc_add_series(data = req(us_case_summary()) %>% 
                     filter(date >= dmy("1/3/2020")) %>% 
                     select(date, `Cumulative`= cum_pos_rate, `Trailing Days`=pos_rate_ma) %>% 
                     gather(key="Series", value="value", -date), 
@@ -1836,17 +1834,18 @@ city_combined <- reactive({
       )
     ) %>%
     supplement_data_for_growth() %>% 
+    supplement_data_for_demographics() %>%
     filter(cases > 0) %>% 
     mutate(
       rate = (cases / pop) * 100000,
       popup = paste0(
         "<font color='blue'>Zipcode: ", zipcode, "</font><br/>",
         "<hr/>",
-        demographics, 
+        text_demographics, 
         "<hr/>", 
-        case_rates, 
+        text_case, 
         "<hr/>", 
-        growth_rates
+        text_growth
       ),
       popup = map(popup, HTML)
     ) %>% 
@@ -1890,10 +1889,8 @@ Row
 
 ```{r city_data,context="server",include=F}
 city_data <- reactive({
-  req(input$cityselection)
-  
   city_combined() %>%
-    filter(city == input$cityselection) 
+    filter(city == req(input$cityselection))
 })
 
 city_vis_options <- get_vis_elements(city_data,
@@ -1905,9 +1902,7 @@ city_vis_options <- get_vis_elements(city_data,
 
 ```{r city_map,context="server",include=F}
 output$cityview <- renderLeaflet({
-  req(city_vis_options)
-
-  vis_options <- city_vis_options()
+  vis_options <- req(city_vis_options())
   
   leaflet() %>% 
     addProviderTiles(providers$CartoDB.Positron) %>%
@@ -1915,12 +1910,10 @@ output$cityview <- renderLeaflet({
 })
 
 observe(label="update_citymap", {
-  req(city_vis_options)
-  req(city_data)
-  vis_options <- city_vis_options()
+  vis_options <- req(city_vis_options())
   
   geoms <- zip_geoms %>% 
-    inner_join(city_data(), by="zipcode")
+    inner_join(req(city_data()), by="zipcode")
   
   box <- st_bbox(geoms$geometry)
   center <- st_centroid(geoms$geometry)
@@ -1935,13 +1928,12 @@ observe(label="update_citymap", {
 observeEvent(input$cityview_groups, 
              label="handle_citymap_legend", {
   
-  req(city_vis_options)
   map <- leafletProxy('cityview') %>% 
     clearControls() 
   
   selection <- isolate(input$cityview_groups)
   
-  adjust_legend(map, selection, city_vis_options())
+  adjust_legend(map, selection, req(city_vis_options()))
 })
 ```
 
@@ -1982,8 +1974,7 @@ Row
 
 ```{r curve_flattening_data,context="server"}
 curve_flattening_data <- reactive({
-  req(input$curve_flattening_resolution)
-  resolution <- input$curve_flattening_resolution
+  resolution <- req(input$curve_flattening_resolution)
   
   x <- if (resolution == "Countries") {
     world_cases_jh() %>% 

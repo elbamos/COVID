@@ -1500,7 +1500,7 @@ region_click_state <- reactive(label="usmapclick", {
     
     target <- st_point(x=c(lng, lat), dim=c("XY"))
     
-    out <- us_cases_with_geo() %>% 
+    out <- req(us_cases_with_geo()) %>% 
         filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
         filter(st_within(target, geometry, sparse=F, prepared=F)) %>% 
         select(state, county, loc_id)
@@ -1534,9 +1534,8 @@ us_case_summary <- reactive(label="us_case_summary", {
       supplement_data_for_testing() %>%
       filter(cases >= req(input$usmincases))
   } else {
-    loc <- click_state$loc_id[1]
     us_cases_state_county() %>% ungroup() %>% 
-      filter(loc_id == loc)
+      filter(loc_id == click_state$loc_id[1])
   }) %>%
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 

@@ -1532,10 +1532,11 @@ us_case_summary <- reactive(label="us_case_summary", {
       summarize_if(is.numeric, ~sum(., na.rm=T)) %>%
       supplement_data_for_growth() %>%
       supplement_data_for_testing() %>%
-      filter(cases >= input$usmincases)
+      filter(cases >= req(input$usmincases))
   } else {
+    loc <- click_state$loc_id[1]
     us_cases_state_county() %>% ungroup() %>% 
-      filter(loc_id == click_state$loc_id[1])
+      filter(loc_id == loc)
   }) %>%
     select(date, Cases=cases, Deaths=deaths, 
            Hospitalized=hospitalized, ICU=icu, 
@@ -1543,15 +1544,6 @@ us_case_summary <- reactive(label="us_case_summary", {
            cum_negative, pending, negativeIncrease, cum_pos_rate, pos_rate_ma, 
            `New Cases` = cases_new, new_cases_ma, cases_growth_rate, cases_growth_rate_ma) 
   
-})
-
-click_state_name <- reactive({
-  click_state = region_click_state()
-  if (is.na(click_state)) "U.S." 
-  else {
-    if_else(is.na(click_state$county[1]), click_state$state[1],
-            paste0(click_state$county[1], ", ", click_state$state[1]))
-  }
 })
 ```
 
@@ -1602,7 +1594,7 @@ output$usdailynewcases <- renderHighchart({
 ```{r us_growth,context="server",include=F}
 output$us_growth_rate <- renderHighchart(
   highchart() %>% 
-    hc_title(text=paste0("Growth Rate (", isolate(click_state_name()), ")")) %>%
+    hc_title(text=paste0("Growth Rate (", req(isolate(click_state_name())), ")")) %>%
     hc_xAxis(type="datetime") %>%
     hc_yAxis(title="", type="logarithmic", 
              labels=list(
@@ -1613,9 +1605,7 @@ output$us_growth_rate <- renderHighchart(
       marker=list(enabled=F), 
       data=req(us_case_summary()) %>% 
         select(
-          date, 
-          `Growth Rate` = cases_growth_rate, 
-          cases_growth_rate_ma
+          date, `Growth Rate` = cases_growth_rate, cases_growth_rate_ma
         ) %>% 
         gather(key="key", value="value", -date) %>%
         mutate(

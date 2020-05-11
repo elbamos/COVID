@@ -40,14 +40,14 @@ library(zoo)
 
 ```{r params,include=F,context="data",cache=F}
 params <- list(
-  k = 7
+  k = 7,
+  updateFreq = 60 * 60 * 1000
 )
 ```
 
 ```{r setupdata,context="server-start",include=F}
 dataset <- list()
 datasetdt <- reactiveValues()
-updateFreq = 10 * 60 * 1000
 
 update_dataset_dt_file <- function(tag, file) {
   datasetdt[[tag]] <- file.mtime(file)
@@ -71,7 +71,7 @@ get_new_data <- function(tag, url, f) {
 }
 
 makePoll <- function(tag, url, f) reactivePoll(
-  intervalMillis = updateFreq, session = NULL, 
+  intervalMillis = params$updateFreq, session = NULL, 
   checkFunc = function() get_url_date(url), 
   valueFunc = function() get_new_data(tag, url, f)
 )
@@ -497,7 +497,7 @@ process_covid_track <- function(x) x %>%
   ungroup()
 
 dataset$covid_track <- reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
+  intervalMillis = params$updateFreq, session=NULL,
   checkFunc = function() get_url_date(url_covid_track),
   valueFunc = function() get_new_data_json(tag="COVID Track", 
                                            url=url_covid_track, 
@@ -566,7 +566,7 @@ process_alameda <- function(x) x$features$attributes %>%
   )
 
 dataset$alameda <- reactivePoll(
-  intervalMillis = updateFreq, session=NULL,
+  intervalMillis = params$updateFreq, session=NULL,
   checkFunc = function() get_url_date(url_alameda),
   valueFunc = function() get_new_data_json(tag="Alameda", 
                                            url=url_alameda, 
@@ -1510,7 +1510,18 @@ region_click_state <- reactive(label="usmapclick", {
 })
 ```
 
-```{r data_for_us_charts,context="server",include=F}
+```{r us_click_state,context="server"}
+click_state_name <- reactive({
+  click_state = region_click_state()
+  if (is.na(click_state)) "U.S." 
+  else {
+    if_else(is.na(click_state$county[1]), click_state$state[1],
+            paste0(click_state$county[1], ", ", click_state$state[1]))
+  }
+})
+```
+
+```{r data_us_case_sumary,context="server",include=F}
 us_case_summary <- reactive(label="us_case_summary", {
   click_state <- region_click_state()
 

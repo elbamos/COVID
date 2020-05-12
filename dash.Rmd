@@ -192,8 +192,6 @@ continental_us <- geometries %>%
   ungroup() %>% 
   summarize(us = st_combine(geometry)) 
 
-load("./region_geometries.Rda")
-
 world_geoms <- region_geometries %>% 
     inner_join(
       locations %>% 
@@ -1735,19 +1733,19 @@ city_losangeles <- reactive(
 ```{r city_input,context="server",include=F}
 output$cityinputs <- renderUI({
   tagList(
-    radioGroupButtons(
+    shinyWidgets::radioGroupButtons(
       "cityselection", 
       label="Choose City", 
       choices=c("New York", "San Francisco", "Los Angeles"),
       selected = "New York",
+      direction="vertical",
       individual = TRUE, 
       #status = "info", 
-      checkIcon = list(
-yes = tags$i(class = "fa fa-check-square", 
-    style = "color: steelblue"),
-   no = tags$i(class = "fa fa-square-o", 
-    style = "color: steelblue")
-      )
+      # checkIcon = list(
+      #yes = tags$i(class = "fa fa-check-square", 
+      #             style = "color: steelblue"),
+      #no = tags$i(class = "fa fa-square-o", 
+      #            style = "color: steelblue")
     )
   )
 })

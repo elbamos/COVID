@@ -1670,9 +1670,7 @@ process_city <- function(x) x %>%
       "<hr/>",
       text_demographics, 
       "<hr/>", 
-      text_case, 
-      "<hr/>", 
-      text_growth
+      text_case
     ),
     popup = map(popup, HTML)
   ) %>% 

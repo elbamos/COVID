@@ -38,7 +38,7 @@ library(jsonlite)
 library(zoo)
 ```
 
-```{r params,include=F,context="data",cache=F}
+```{r params,include=F,cache=F,context="data"}
 params <- list(
   k = 7,
   updateFreq = 60 * 60 * 1000
@@ -115,14 +115,23 @@ supplement_data_for_demographics <- function(x) x %>%
     text_demographics = paste0(
       if_else(!is.na(pop), paste0("Population: ", pop, "<br/>"), ""), 
       if_else(!is.na(pop_density), paste0("Density: ", round(pop_density, 4), " ppl/sqmi<br/>"), ""),
-      if_else(is.na(housing_density), paste0( "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>"), ""),
+      if_else(!is.na(housing_density), paste0( "Housing Units: ",  round(housing_density, 4), " /sqmi<br/>"), ""),
       if_else(!is.na(penetrance), paste0("Penetrance: ", round(penetrance, 3), " cases / household<br/>"), "")
     )
   )
 
+supplement_data_base <- function(x) x %>% 
+  mutate(
+      rate = round((cases / pop) * 100000),
+       text_case = paste0(
+        if_else(!is.na(cases), paste0("Confirmed Cases: ", cases, "<br/>"), ""), 
+        if_else(!is.na(rate), paste0("Infection Rate: ", rate, " / 100,000 ppl<br/>"), ""),
+        if_else(!is.na(deaths), paste0("Deaths: ", deaths, "<br/>"), "")
+      )
+  )
+
 supplement_data_for_growth <- function(x) x %>% 
   mutate(
-    rate = round((cases / pop) * 100000),
     cases_new = cases - lag(cases, 1, default = 0),
     cases_growth_rate = case_when(
       cases_new == 0 ~ 0, 
@@ -135,12 +144,6 @@ supplement_data_for_growth <- function(x) x %>%
     
     had_increase = cases_new > new_cases_ma, 
     hot_spot = (had_increase + dplyr::lag(had_increase, 1, default=1) + dplyr::lag(had_increase, 2, default=1)) == 3, 
-    
-    text_case = paste0(
-      if_else(!is.na(cases), paste0("Confirmed Cases: ", cases, "<br/>"), ""), 
-      if_else(!is.na(rate), paste0("Infection Rate: ", rate, " / 100,000 ppl<br/>"), ""),
-      if_else(!is.na(deaths), paste0("Deaths: ", deaths, "<br/>"), "")
-    ), 
     
     text_growth = paste0(
       if_else(! is.na(cases_new), paste0("New Cases: ", cases_new, "<br/>"), ""), 
@@ -260,6 +263,7 @@ world_cases_jh <- reactive({
       vent = NA_real_,
       negative = NA_real_
     ) %>% 
+    supplement_data_base() %>%
     supplement_data_for_medical() %>%
     supplement_data_for_growth() 
 })
@@ -997,6 +1001,7 @@ world_case_summary <- reactive(label="world_case_summary", {
      #select(-loc_id) %>%
      summarize_if(is.numeric, ~sum(., na.rm=T)) %>% 
       arrange(date) %>% 
+      supplement_data_base() %>%
       supplement_data_for_medical() %>% 
       supplement_data_for_growth()
   } else {
@@ -1200,6 +1205,7 @@ process_us_cases <- function(x) us_geography_data %>%
   ) %>%
   group_by(loc_id) %>%
   arrange(date) %>%
+  supplement_data_base() %>% 
   supplement_data_for_demographics() %>%
   supplement_data_for_growth() %>%
   mutate(
@@ -1382,6 +1388,7 @@ us_case_summary <- reactive(label="us_case_summary", {
       ungroup() %>% 
       group_by(date) %>% 
       summarize_if(is.numeric, ~sum(., na.rm=T)) %>%
+      supplement_data_base() %>%
       supplement_data_for_growth() %>%
       supplement_data_for_testing() %>%
       filter(cases >= req(input$usmincases))
@@ -1659,13 +1666,15 @@ zips_with_pop <- zip_geoms %>% data.frame() %>%
 
 process_city <- function(x) x %>%
   mutate(
-    pop_density = pop / landsqmi
+    pop = round(pop),
+    pop_density = round(pop / landsqmi)
   ) %>%
-  supplement_data_for_growth() %>% 
+  supplement_data_base() %>% 
   supplement_data_for_demographics() %>%
   filter(cases > 0) %>% 
   mutate(
-    rate = (cases / pop) * 100000,
+    rate = round((cases / pop) * 100000),
+    hot_spot = F,
     popup = paste0(
       name,
       "<hr/>",

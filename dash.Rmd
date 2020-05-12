@@ -1743,14 +1743,10 @@ output$cityinputs <- renderUI({
       individual = TRUE, 
       #status = "info", 
       checkIcon = list(
-        yes = tags$i(
-          class = "fa fa-circle", 
-          style = "color: steelblue"
-        ),
-        no = tags$i(
-          class = "fa fa-circle-o", 
-          style = "color: steelblue"
-        )
+yes = tags$i(class = "fa fa-check-square", 
+    style = "color: steelblue"),
+   no = tags$i(class = "fa fa-square-o", 
+    style = "color: steelblue")
       )
     )
   )
@@ -1787,11 +1783,11 @@ city_vis_options <- get_vis_elements(city_data,
 
 ```{r city_map,context="server",include=F}
 output$cityview <- renderLeaflet({
-  vis_options <- req(city_vis_options())
+  #vis_options <- req(isolate(city_vis_options()))
   
   leaflet() %>% 
-    addProviderTiles(providers$CartoDB.Positron) %>%
-    addLayersControl(baseGroups = names(vis_options))
+    addProviderTiles(providers$CartoDB.Positron) #%>%
+    #addLayersControl(baseGroups = names(vis_options))
 })
 
 observe(label="update_citymap", {
@@ -1804,9 +1800,11 @@ observe(label="update_citymap", {
   
   geoms %>% 
     leafletProxy(data=., mapId = "cityview", deferUntilFlush=T) %>% 
-    update_map(vis_options, "cityview", input) %>%
     setMaxBounds(box[[1]], box[[2]], box[[3]], box[[4]]) %>%
-    setView(lat=center[[1]][2], lng=center[[1]][1], zoom=10)
+    setView(lat=center[[1]][2], lng=center[[1]][1], zoom=10) %>%
+    clearControls() %>% 
+    update_map(vis_options, "cityview", input) %>%
+    addLayersControl(baseGroups = names(vis_options))
 })
 
 observeEvent(input$cityview_groups, 

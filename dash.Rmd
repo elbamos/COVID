@@ -394,6 +394,52 @@ dataset$alameda <- reactivePoll(
 )
 ```
 
+```{r data_la,context="server-start",include=F}
+library(rvest)
+
+url_la <- "http://publichealth.lacounty.gov/media/coronavirus/locations.htm"
+
+dataset$los_angeles <- reactivePoll(
+  intervalMillis = params$updateFreq, session=NULL, 
+  checkFunc = function() get_url_date(url_la), 
+  valueFunc = function() {
+    out <- read_html(url_la) %>% 
+      html_nodes("table") %>% 
+      html_table() %>% 
+      extract2(1) %>%
+      mutate(
+        section = cumsum(as.numeric(str_detect(X1, "CITY/COMMUNITY"))),
+        deaths = cumsum(as.numeric(str_detect(X1, "Deaths"))), 
+        X2 = as.numeric(X2), 
+        X3 = as.numeric(X3), 
+        other_keep = str_detect(X1, "Long Beach") | str_detect(X1, "Pasadena")
+      ) %>%
+      filter(
+        (section > 0 | (deaths == 0 & other_keep)), 
+        ! str_detect(X1, "Under Investigation"), 
+        ! str_detect(X1, "CITY/COMMUNITY")
+      ) %>%
+      select(-section, -other_keep, -deaths) %>% 
+      set_colnames(c("city", "cases", "rate")) %>%
+      mutate(
+        pop = (cases / rate) * 100000, 
+        CITY_TYPE = if_else(str_detect(city, "Unincorporated"), "Unincorporated", "City"),
+        CITY_NAME = city %>% 
+          map(~ str_replace_all(.x, "\\*", "")) %>%
+          map(~ str_replace_all(.x, "Unincorporated - ", "")) %>%
+          map(~ str_replace_all(.x, "Los Angeles - ", "")) %>%
+          map(~ str_replace_all(.x, "City of ", "")) %>%
+          map(~ str_replace_all(.x, "- ", "")) %>%
+          unlist()
+      )
+    
+    update_dataset_dt_url("LA Local", url_la)
+    
+    out
+  }
+)
+```
+
 ```{r visualization_options,context="server-start",cache=F,include=F}
 palletes <- list(
   # Counts
@@ -714,6 +760,7 @@ output$status_covid_track <- data_status_box(dataset$covid_track, "COVID Track",
 valueBoxOutput("status_covid_track")
 ```
 
+
 Row {data-height=70}
 -----------------------------
 
@@ -747,6 +794,16 @@ output$status_alameda <- data_status_box(dataset$alameda, "Alameda", "Alameda")
 
 ```{r status_alameda_out}
 valueBoxOutput("status_alameda")
+```
+
+### Los Angeles Local
+
+```{r status_la_server,context="server"}
+output$status_la <- data_status_box(dataset$los_angeles, "LA Local", "LA Local")
+```
+
+```{r status_la}
+valueBoxOutput("status_la")
 ```
 
 World Overview

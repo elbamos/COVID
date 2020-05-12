@@ -1518,7 +1518,8 @@ output$ustestingrate <- renderHighchart(
                     select(date, `Cumulative`= cum_pos_rate, `Trailing Days`=pos_rate_ma) %>% 
                     gather(key="Series", value="value", -date), 
                   type="line", 
-                  mapping=hcaes(x=date, y=value, group=Series))
+                  mapping=hcaes(x=date, y=value, group=Series)) %>%
+    hc_tooltip(shared=T)
 )
 ```
 

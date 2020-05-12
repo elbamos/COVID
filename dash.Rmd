@@ -178,6 +178,7 @@ load("./data/region_geometries.Rda")
 load("./data/zip_geoms.Rda")
 load("./data/san_mateo.Rda")
 load("./data/zips.Rda")
+load("./data/la_polys.Rda")
 
 geometries %<>%
   left_join(locations %>% 
@@ -431,7 +432,8 @@ dataset$los_angeles <- reactivePoll(
           map(~ str_replace_all(.x, "City of ", "")) %>%
           map(~ str_replace_all(.x, "- ", "")) %>%
           unlist()
-      )
+      ) %>%
+      select(-city)
     
     update_dataset_dt_url("LA Local", url_la)
     
@@ -1651,69 +1653,92 @@ Inputs {.sidebar}
 
 ### Input
 
-```{r city_combined_data,context="server-start",include=F}
+```{r city_datasets,context="server-start",include=F}
 zips_with_pop <- zip_geoms %>% data.frame() %>% 
   select(zipcode, pop) %>%
   left_join(zips %>% data.frame() %>% select(zipcode, aland10))
 
-city_combined <- reactive({
+process_city <- function(x) x %>%
+  mutate(
+    pop_density = pop / landsqmi
+  ) %>%
+  supplement_data_for_growth() %>% 
+  supplement_data_for_demographics() %>%
+  filter(cases > 0) %>% 
+  mutate(
+    rate = (cases / pop) * 100000,
+    popup = paste0(
+      name,
+      "<hr/>",
+      text_demographics, 
+      "<hr/>", 
+      text_case, 
+      "<hr/>", 
+      text_growth
+    ),
+    popup = map(popup, HTML)
+  ) %>% 
+  ungroup() 
+
+city_sfbay <- reactive(
   bind_rows(
-    dataset$nyzipcode(),
     dataset$sfzipcode(),
     dataset$alameda()
   ) %>% 
     mutate(
       zipcode = as.character(zipcode)
     ) %>% 
-    bind_rows(san_mateo %>% rename(cases=count)) %>% 
+    bind_rows(san_mateo %>% rename(cases=count)) %>%
+    mutate(
+      negative = NA_real_, 
+      housing_units = NA_real_
+    ) %>% 
+    left_join(zips_with_pop) %>%
+    mutate(
+      landsqmi = aland10 / 2591646,
+      name = paste0("<font color='blue'>Zipcode: ", zipcode, "</font><br/>"),
+    ) %>%
+    process_city()
+)
+
+city_nyc <- reactive(
+  dataset$nyzipcode() %>%
+    mutate(
+      zipcode = as.character(zipcode)
+    ) %>%
+    left_join(zips_with_pop) %>%
+    mutate(
+      landsqmi = aland10 / 2591646,
+      negative = NA_real_, 
+      housing_units = NA_real_,
+      name = paste0("<font color='blue'>Zipcode: ", zipcode, "</font><br/>"),
+    ) %>%
+    process_city()
+)
+
+city_losangeles <- reactive(
+  dataset$los_angeles() %>%
+    left_join(
+      la_polys %>% data.frame() %>% select(CITY_NAME, CITY_TYPE, landsqmi = area_sm)
+    ) %>%
     mutate(
       negative = NA_real_, 
       housing_units = NA_real_,
-      hospitalized = NA_real_, 
-      icu = NA_real_, 
-      vent = NA_real_
-    ) %>% 
-    left_join(zips_with_pop) %>% 
-    group_by(zipcode) %>%
-    arrange(date) %>% 
-    mutate(
-      cases_new = cases - lag(cases, 1, default=0),
-      landsqmi = aland10 / 2591646,
-      pop_density = pop / landsqmi,
-      city = case_when(
-        str_starts(zipcode, "94") ~ "San Francisco", 
-        TRUE ~ "New York"
-      )
+      hospitalized = NA_real_,
+      deaths = NA_real_,
+      name = paste0("<font color='blue'>", CITY_NAME, "</font><br/>"),
     ) %>%
-    supplement_data_for_growth() %>% 
-    supplement_data_for_demographics() %>%
-    filter(cases > 0) %>% 
-    mutate(
-      rate = (cases / pop) * 100000,
-      popup = paste0(
-        "<font color='blue'>Zipcode: ", zipcode, "</font><br/>",
-        "<hr/>",
-        text_demographics, 
-        "<hr/>", 
-        text_case, 
-        "<hr/>", 
-        text_growth
-      ),
-      popup = map(popup, HTML)
-    ) %>% 
-    ungroup() 
-})
+    process_city()
+)
 ```
 
 ```{r city_input,context="server",include=F}
 output$cityinputs <- renderUI({
-  cases <- city_combined()
-  
   tagList(
     radioGroupButtons(
       "cityselection", 
       label="Choose City", 
-      choices=sort(unique(cases$city)), 
+      choices=c("New York", "San Francisco", "Los Angeles"),
       selected = "New York",
       individual = TRUE, 
       #status = "info", 
@@ -1741,8 +1766,16 @@ Row
 
 ```{r city_data,context="server",include=F}
 city_data <- reactive({
-  city_combined() %>%
-    filter(city == req(input$cityselection))
+  city <- req(input$cityselection)
+  
+  if (city == "Los Angeles") la_polys %>% inner_join(city_losangeles())
+  else {
+    x <- (
+      if (city == "New York") city_nyc()
+      else city_sfbay()
+    )
+    zip_geoms %>% inner_join(x, by="zipcode")
+  }
 })
 
 city_vis_options <- get_vis_elements(city_data,
@@ -1764,8 +1797,7 @@ output$cityview <- renderLeaflet({
 observe(label="update_citymap", {
   vis_options <- req(city_vis_options())
   
-  geoms <- zip_geoms %>% 
-    inner_join(req(city_data()), by="zipcode")
+  geoms <- req(city_data())
   
   box <- st_bbox(geoms$geometry)
   center <- st_centroid(geoms$geometry)

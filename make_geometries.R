@@ -220,6 +220,6 @@ la_polys <- geojson_sf("https://opendata.arcgis.com/datasets/7b0998f4e2ea42bda00
     FEAT_TYPE == "Land", 
     CITY_NAME != "Unincorporated" | CITY_TYPE != "Unincorporated"
   ) %>% 
-  select(CITY, CITY_TYPE, area_sm = OF_AREA_SM, geometry) 
+  select(CITY_NAME, CITY_TYPE, area_sm = OF_AREA_SM, geometry) 
 
 save(la_polys, file="./data/la_polys.Rda")

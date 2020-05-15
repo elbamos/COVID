@@ -37,7 +37,7 @@ library(jsonlite)
 library(zoo)
 ```
 
-```{r params,include=F,cache=F,context="data"}
+```{r params,include=F,cache=F,context="setup"}
 params <- list(
   k = 7,
   updateFreq = 60 * 60 * 1000
@@ -173,7 +173,7 @@ supplement_data_for_testing <- function(x) x %>%
   )
 ```
 
-```{r load_data_and_geoms,include=F,context="data",cache=F}
+```{r load_data_and_geoms,include=F,context="setup",cache=F}
 load("./data/locations.Rda")
 load("./data/geometries.Rda")
 load("./data/region_geometries.Rda")

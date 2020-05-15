@@ -2,50 +2,6 @@ library(rnaturalearth)
 library(ozmaps)
 library(geojsonsf)
 
-# SETUP LOCATIONS ####
-
-confirmed <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
-
-locations <- confirmed[, 1:4] %>%
-  set_colnames(c("Sublocation", "Location", "lat", "lng")) %>%
-  mutate(us_level="Country", Subsublocation=NA) %>% 
-  bind_rows(
-    geometries %>% 
-      rename(Sublocation=state, Subsublocation=county) %>%
-      mutate(
-        Location="US",
-        us_level = if_else(is.na(Subsublocation), "State", "County")
-      ) %>% select(Location, Sublocation, Subsublocation, us_level, lat, lng)
-  ) %>%
-  mutate(loc_id = 1:n()) %>%
-  select(Location, Sublocation, Subsublocation, lat, lng, us_level, loc_id) 
-
-save(locations, file="./data/locations.Rda")
-
-# MAKE CENSUS DATA 
-library(tidycensus)
-
-census_to_pull <- data.frame(
-  variable = c("B00001_001", # Pop
-               "B00002_001", # Housing units, 
-               "B01001_002", # Male
-               "B01001_026"  # Female
-  ),
-  names = c("pop", "housing_units", "male", "female")
-)
-
-census_data <- get_acs(geography = "county", year = 2015, 
-                       variables=as.character(census_to_pull$variable)
-) %>% 
-  bind_rows(
-    get_acs(geography = "state", year = 2015, 
-            variables=as.character(census_to_pull$variable)
-    )
-  ) %>%
-  inner_join(census_to_pull)
-
-save(census_data, file="./data/census_data.Rda")
-
 # MAKE GEOMETRIES ####
 
 counties <- USAboundaries::us_counties()
@@ -108,6 +64,52 @@ rm(counties)
 rm(states)
 
 save(geometries, file="./data/geometries.Rda")
+
+# SETUP LOCATIONS ####
+
+confirmed <- read_csv("./COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
+
+locations <- confirmed[, 1:4] %>%
+  set_colnames(c("Sublocation", "Location", "lat", "lng")) %>%
+  mutate(us_level="Country", Subsublocation=NA) %>% 
+  bind_rows(
+    geometries %>% 
+      rename(Sublocation=state, Subsublocation=county) %>%
+      mutate(
+        Location="US",
+        us_level = if_else(is.na(Subsublocation), "State", "County")
+      ) %>% select(Location, Sublocation, Subsublocation, us_level, lat, lng)
+  ) %>%
+  mutate(loc_id = 1:n()) %>%
+  select(Location, Sublocation, Subsublocation, lat, lng, us_level, loc_id) 
+
+save(locations, file="./data/locations.Rda")
+
+# MAKE CENSUS DATA 
+library(tidycensus)
+
+census_to_pull <- data.frame(
+  variable = c("B00001_001", # Pop
+               "B00002_001", # Housing units, 
+               "B01001_002", # Male
+               "B01001_026"  # Female
+  ),
+  names = c("pop", "housing_units", "male", "female")
+)
+
+census_data <- get_acs(geography = "county", year = 2015, 
+                       variables=as.character(census_to_pull$variable)
+) %>% 
+  bind_rows(
+    get_acs(geography = "state", year = 2015, 
+            variables=as.character(census_to_pull$variable)
+    )
+  ) %>%
+  inner_join(census_to_pull)
+
+save(census_data, file="./data/census_data.Rda")
+
+
 
 # COUNTRY GEOMS ####
 

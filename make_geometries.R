@@ -1,6 +1,8 @@
 library(rnaturalearth)
 library(ozmaps)
 library(geojsonsf)
+library(USAboundariesData)
+
 
 # MAKE GEOMETRIES ####
 

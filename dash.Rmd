@@ -31,7 +31,6 @@ library(leaflet)
 library(highcharter)
 library(htmltools)
 library(sf)
-library(USAboundariesData)
 
 # Other
 library(jsonlite)

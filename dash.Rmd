@@ -1349,10 +1349,14 @@ Row
 ###
 
 ```{r us_detect_click,context="server",include=F}
+click_state_name <- reactiveVal("U.S.", label="us_click_name") 
+
 region_click_state <- reactive(label="usmapclick", {
   
-  if (is.null(input$usview_click)) {NA}
-  else {
+  if (is.null(input$usview_click)) {
+    click_state_name("U.S.")
+    NA
+  } else {
     lat <- input$usview_click$lat
     lng <- input$usview_click$lng
     
@@ -1362,19 +1366,15 @@ region_click_state <- reactive(label="usmapclick", {
         filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
         filter(st_within(target, geometry, sparse=F, prepared=F)) %>% 
         select(state, county, loc_id)
-    if (nrow(out) == 0) {NA}
-    else {out}
-  }
-})
-```
-
-```{r us_click_state,context="server"}
-click_state_name <- reactive({
-  click_state = region_click_state()
-  if (is.na(click_state)) "U.S." 
-  else {
-    if_else(is.na(click_state$county[1]), click_state$state[1],
-            paste0(click_state$county[1], ", ", click_state$state[1]))
+    if (nrow(out) == 0) {
+      click_state_name("U.S.")
+      NA
+    } else {
+      name <- if_else(is.na(out$county[1]), out$state[1],
+            paste0(out$county[1], ", ", out$state[1]))
+      click_state_name(name)
+      out
+    }
   }
 })
 ```

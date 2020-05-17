@@ -958,33 +958,71 @@ leafletOutput("worldview")
 ```{r worldview_handle_clicks,context="server",include=F}
 click_d_threshold <- 20 
 
-world_click_state <- reactive(label="worldmapclick", {
-  if (is.null(input$worldview_click)) {NA}
-  else {
-    lat <- input$worldview_click$lat
-    lng <- input$worldview_click$lng
-    
-    target <- st_point(x=c(lng, lat), dim=c("XY"))
-    
-    poly_match <- world_geoms %>%
-      filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
-      filter(st_within(target, geometry, sparse=F, prepared=F)) 
-    
-    if (nrow(poly_match) > 0) return(poly_match$loc_id[1])
+world_click_name <- reactiveVal("Global")
 
-    out <- locations %>% filter(
-      is.na(Subsublocation), 
-      ! loc_id %in% world_geoms$loc_id, 
-      Location != "US" | is.na(Sublocation)
+set_world_click_name <- function(new_loc_id) {
+  if (is.na(new_loc_id)) world_click_name("Global")
+  else locations %>%
+    filter(loc_id == new_loc_id) %>%
+    mutate(
+      name = case_when(
+        is.na(Sublocation) ~ Location,
+        TRUE ~ paste0(Sublocation, " ", Location)
+      )
     ) %>%
-      mutate(
-        pt = map2(lng, lat, ~st_point(c(.x, .y), dim="XY")), 
-        d = unlist(map(pt, ~ st_distance(target, .x)))
-      ) %>%
-      top_n(n=1, wt=-d)
+    use_series(name) %>%
+    world_click_name()
+  
+  new_loc_id
+}
+
+match_geoms <- function(click, geoms) {
+  lat <- click$lat
+  lng <- click$lng
+  
+  target <- st_point(x=c(lng, lat), dim=c("XY"))
     
-    if (out$d[1] < click_d_threshold) {out$loc_id[1]}
-    else {NA}
+  geoms %>%
+    filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
+    filter(st_within(target, geometry, sparse=F, prepared=F)) 
+}
+
+match_circles <- function(click) {
+  lat <- click$lat
+  lng <- click$lng
+  
+  target <- st_point(x=c(lng, lat), dim=c("XY"))
+  
+  locations %>% filter(
+    is.na(Subsublocation), 
+    ! loc_id %in% world_geoms$loc_id, 
+    Location != "US" | is.na(Sublocation)
+  ) %>%
+    mutate(
+      pt = map2(lng, lat, ~st_point(c(.x, .y), dim="XY")), 
+      d = unlist(map(pt, ~ st_distance(target, .x)))
+    ) %>%
+    top_n(n=1, wt=-d)
+}
+
+world_click_state <- reactive(label="worldmapclick", {
+  if (is.null(input$worldview_click)) set_world_click_name(NA)
+  else {
+    poly_match <- match_geoms(input$worldview_click, isolate(world_geoms))
+
+    if (nrow(poly_match) > 0) {
+      out <- poly_match$loc_id[1]
+      set_world_click_name(out)
+      out
+    } else {
+      circle_matches <- match_circles(input$worldview_click)
+      
+      if (circle_matches$d[1] < click_d_threshold) {
+        set_world_click_name(circle_matches$loc_id[1])
+      } else {
+        set_world_click_name(NA)
+      }
+    }
   }
 })
 ```
@@ -1011,23 +1049,6 @@ world_case_summary <- reactive(label="world_case_summary", {
   }) %>% 
     filter(cases >= input$worldmincases)
 })
-
-
-world_click_name <- reactive({
-  click_state = world_click_state()
-  if (is.na(click_state)) {"Global"}
-  else {
-    locations %>%
-      filter(loc_id == click_state) %>%
-      mutate(
-        name = case_when(
-          is.na(Sublocation) ~ Location,
-          TRUE ~ paste0(Sublocation, " ", Location)
-        )
-      ) %>%
-      use_series(name)
-  }
-})
 ```
 
 Row {data-height=300}
@@ -1039,7 +1060,7 @@ Row {data-height=300}
 output$worldcases <- renderHighchart({
   req(input$worldscale)
   highchart()  %>%
-    hc_title(text = paste0("Cases (", isolate(world_click_name()), ")")) %>%
+    hc_title(text = paste0("Cases (", world_click_name(), ")")) %>%
     hc_yAxis(title = "", 
              type = input$worldscale,
              min = if_else(input$worldscale == "linear", 0, 1)) %>%
@@ -1072,7 +1093,7 @@ highchartOutput("worldcases")
 output$dailynewcases <- renderHighchart({
   req(input$worldscale)
   highchart()  %>%
-    hc_title(text = paste0("New Cases Per Day (", isolate(world_click_name()), ")")) %>%
+    hc_title(text = paste0("New Cases Per Day (", world_click_name(), ")")) %>%
     hc_yAxis(title = "") %>%
     hc_xAxis(type = "datetime") %>%
     hc_add_series(
@@ -1103,7 +1124,7 @@ highchartOutput("dailynewcases")
 output$world_growth <- renderHighchart({
   req(input$worldscale)
   highchart()  %>%
-    hc_title(text = paste0("Growth Rate (", isolate(world_click_name()), ")")) %>%
+    hc_title(text = paste0("Growth Rate (", world_click_name(), ")")) %>%
     hc_yAxis(title = "", 
              type="logarithmic",
              labels=list(
@@ -1357,15 +1378,9 @@ region_click_state <- reactive(label="usmapclick", {
     click_state_name("U.S.")
     NA
   } else {
-    lat <- input$usview_click$lat
-    lng <- input$usview_click$lng
+    out <- match_geoms(input$usview_click, req(us_cases_with_geo())) %>%
+      select(state, county, loc_id)
     
-    target <- st_point(x=c(lng, lat), dim=c("XY"))
-    
-    out <- req(us_cases_with_geo()) %>% 
-        filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
-        filter(st_within(target, geometry, sparse=F, prepared=F)) %>% 
-        select(state, county, loc_id)
     if (nrow(out) == 0) {
       click_state_name("U.S.")
       NA
@@ -1408,7 +1423,7 @@ us_case_summary <- reactive(label="us_case_summary", {
 ```{r us_cumulative,context="server"}
 output$uscaseslinear <- renderHighchart(
   highchart() %>% 
-    hc_title(text=paste0("Cases, Hosp. and Deaths (", isolate(click_state_name()), ")")) %>%
+    hc_title(text=paste0("Cases, Hosp. and Deaths (", click_state_name(), ")")) %>%
     hc_yAxis(title="", type=req(input$uslog), 
              min = if_else(isolate(input$uslog) == "linear", 0, 1)
              ) %>%
@@ -1430,7 +1445,7 @@ output$uscaseslinear <- renderHighchart(
 ```{r us_daily_new_cases,context="server",include=F}
 output$usdailynewcases <- renderHighchart({
   highchart() %>% 
-    hc_title(text=paste0("Daily New Cases (", isolate(click_state_name()), ")")) %>%
+    hc_title(text=paste0("Daily New Cases (", click_state_name(), ")")) %>%
     hc_xAxis(type="datetime") %>%
     hc_yAxis(title="", type=req(input$uslog), min=1) %>% 
     hc_add_series(type="column", 
@@ -1452,7 +1467,7 @@ output$usdailynewcases <- renderHighchart({
 ```{r us_growth,context="server",include=F}
 output$us_growth_rate <- renderHighchart(
   highchart() %>% 
-    hc_title(text=paste0("Growth Rate (", req(isolate(click_state_name())), ")")) %>%
+    hc_title(text=paste0("Growth Rate (", req(click_state_name()), ")")) %>%
     hc_xAxis(type="datetime") %>%
     hc_yAxis(title="", type="logarithmic", 
              labels=list(
@@ -1484,7 +1499,7 @@ output$us_growth_rate <- renderHighchart(
 output$ustesting <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
-    hc_title(text=paste0("Cumulative Testing (", isolate(click_state_name()), ")")) %>%
+    hc_title(text=paste0("Cumulative Testing (", click_state_name(), ")")) %>%
     hc_yAxis(title="", min=0) %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(data = req(us_case_summary()) %>% 
@@ -1501,7 +1516,7 @@ output$ustesting <- renderHighchart(
 output$ustestinginc <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
-    hc_title(text=paste0("Daily Testing (", isolate(click_state_name()), ")")) %>%
+    hc_title(text=paste0("Daily Testing (", click_state_name(), ")")) %>%
     hc_yAxis(title="", min=0) %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(data = req(us_case_summary()) %>% 
@@ -1517,7 +1532,7 @@ output$ustestinginc <- renderHighchart(
 output$ustestingrate <- renderHighchart(
   highchart()  %>%
     hc_plotOptions(column=list(stacking="normal")) %>%
-    hc_title(text=paste0("Positive Rate (", isolate(click_state_name()), ")")) %>%
+    hc_title(text=paste0("Positive Rate (", click_state_name(), ")")) %>%
     hc_yAxis(title="", min=0) %>%
     hc_xAxis(type="datetime") %>% 
     hc_add_series(data = req(us_case_summary()) %>% 

@@ -645,7 +645,7 @@ adjust_legend <- function(map, groups, vis_options) {
 
 ```{r phony_inputs,include=F}
 # This is used during testing so that reactive expressions that depend on input can function
-if (! exists("input")) {
+if (! isRunning()) {
   input <- list(
     worlddate = Sys.Date() - 1, 
     worldscale = "linear", 
@@ -955,6 +955,10 @@ observeEvent(input$worldview_groups,
 leafletOutput("worldview")
 ```
 
+
+Row {data-height=300}
+----------------------------------------------------
+
 ```{r worldview_handle_clicks,context="server",include=F}
 click_d_threshold <- 20 
 
@@ -1005,11 +1009,12 @@ match_circles <- function(click) {
     top_n(n=1, wt=-d)
 }
 
-world_click_state <- reactive(label="worldmapclick", {
-  if (is.null(input$worldview_click)) set_world_click_name(NA)
-  else {
-    poly_match <- match_geoms(input$worldview_click, isolate(world_geoms))
+world_click_state <- reactiveVal(NA)
 
+observeEvent(input$worldview_click, label="worldmapclick", {
+  {
+    poly_match <- match_geoms(input$worldview_click, isolate(world_geoms))
+    
     if (nrow(poly_match) > 0) {
       out <- poly_match$loc_id[1]
       set_world_click_name(out)
@@ -1023,14 +1028,15 @@ world_click_state <- reactive(label="worldmapclick", {
         set_world_click_name(NA)
       }
     }
-  }
+  } %>% world_click_state()
 })
 ```
 
 ```{r world_case_summary,context="server",include=F}
 world_case_summary <- reactive(label="world_case_summary", {
   cases_input <- world_cases_jh()
-  click_state <- world_click_state()
+  click_state <- if (isTruthy(world_click_state())) world_click_state() 
+  else NA_real_
   
   (if (is.na(click_state)) {
     cases_input %>% 
@@ -1050,9 +1056,6 @@ world_case_summary <- reactive(label="world_case_summary", {
     filter(cases >= input$worldmincases)
 })
 ```
-
-Row {data-height=300}
-----------------------------------------------------
 
 ### Cases
 
@@ -1372,31 +1375,28 @@ Row
 ```{r us_detect_click,context="server",include=F}
 click_state_name <- reactiveVal("U.S.", label="us_click_name") 
 
-region_click_state <- reactive(label="usmapclick", {
+region_click_state <- reactiveVal(NA)
+
+observeEvent(input$usview_click, label="usmapclick", {
+  out <- match_geoms(input$usview_click, req(us_cases_with_geo())) %>%
+    select(state, county, loc_id)
   
-  if (is.null(input$usview_click)) {
+  if (nrow(out) == 0) {
     click_state_name("U.S.")
     NA
   } else {
-    out <- match_geoms(input$usview_click, req(us_cases_with_geo())) %>%
-      select(state, county, loc_id)
-    
-    if (nrow(out) == 0) {
-      click_state_name("U.S.")
-      NA
-    } else {
-      name <- if_else(is.na(out$county[1]), out$state[1],
-            paste0(out$county[1], ", ", out$state[1]))
-      click_state_name(name)
-      out
-    }
+    name <- if_else(is.na(out$county[1]), out$state[1],
+                    paste0(out$county[1], ", ", out$state[1]))
+    click_state_name(name)
+    out
   }
-})
+} %>% region_click_state())
 ```
 
 ```{r data_us_case_sumary,context="server",include=F}
 us_case_summary <- reactive(label="us_case_summary", {
-  click_state <- region_click_state()
+  click_state <- if (isTruthy(region_click_state())) region_click_state()
+  else NA
 
   (if (is.na(click_state)) {
     us_cases_state() %>% 

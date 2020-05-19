@@ -409,6 +409,7 @@ dataset$los_angeles <- reactivePoll(
       html_nodes("table") %>% 
       html_table() %>% 
       extract2(1) %>%
+      select(X1, X2, X3) %>% 
       mutate(
         section = cumsum(as.numeric(str_detect(X1, "CITY/COMMUNITY"))),
         deaths = cumsum(as.numeric(str_detect(X1, "Deaths"))), 

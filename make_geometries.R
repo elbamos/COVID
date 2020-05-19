@@ -115,7 +115,7 @@ save(census_data, file="./data/census_data.Rda")
 
 # COUNTRY GEOMS ####
 
-chn <- st_read("./Shapes/chn_admbnda_adm1_ocha.shp") %>% 
+chn <- st_read("./Shapes/chn_admbnda_adm1_ocha/chn_admbnda_adm1_ocha.shp") %>% 
   group_by(ADM1_EN) %>%
   summarize() %>%
   mutate(
@@ -136,7 +136,7 @@ chn <- st_read("./Shapes/chn_admbnda_adm1_ocha.shp") %>%
     )
   )
 
-can <- st_read("./Shapes/Canada_AL263.shp") %>%
+can <- st_read("./Shapes/Igismap/Canada_AL263.shp") %>%
   mutate(
     Location="Canada",
     Sublocation=as.character(locname),
@@ -227,3 +227,4 @@ la_polys <- geojson_sf("https://opendata.arcgis.com/datasets/7b0998f4e2ea42bda00
   select(CITY_NAME, CITY_TYPE, area_sm = OF_AREA_SM, geometry) 
 
 save(la_polys, file="./data/la_polys.Rda")
+

@@ -1,6 +1,5 @@
 url2 <- "https://www.smchealth.org/sites/main/files/file-attachments/zip_code_population_data_4.29.2020final.pdf"
 
-install.packages("tabulizer")
 out <- tabulizer::extract_tables(url2)
 
 san_mateo <- data.frame(out) %>% 
@@ -15,4 +14,5 @@ san_mateo <- data.frame(out) %>%
     )
   )
 
-save(san_mateo, file="san_mateo.Rda")
+save(san_mateo, file="data/san_mateo.Rda")
+

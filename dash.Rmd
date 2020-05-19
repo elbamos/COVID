@@ -734,7 +734,7 @@ valueBoxOutput("status_jh")
 ### US State & County Data
 
 ```{r status_us,context="server"}
-output$status_us <- data_status_box(dataset$cases_state_nyt, "NYT States", "NYT US State & County Data")
+output$status_us <- data_status_box(dataset$cases_state_nyt, "NYT States", "New York Times US State & County Tracker")
 ```
 
 ```{r status_us_out}
@@ -744,7 +744,7 @@ valueBoxOutput("status_us")
 ### Interventions
 
 ```{r status_interventions,context="server"}
-output$status_interventions <- data_status_box(dataset$interventions, "Interventions", "Intervention Data")
+output$status_interventions <- data_status_box(dataset$interventions, "Interventions", "Keystone Strategy Intervention Data")
 ```
 
 ```{r status_interventions_out}
@@ -771,7 +771,7 @@ Row {data-height=70}
 ### NY DOH
 
 ```{r status_ny,context="server"}
-output$status_nydoh <- data_status_box(dataset$nyzipcode, "NYC Testing by Zipcode", "NY DOH")
+output$status_nydoh <- data_status_box(dataset$nyzipcode, "NYC Testing by Zipcode", "New York Dept. of H.")
 ```
 
 ```{r status_nyc_out}
@@ -781,7 +781,7 @@ valueBoxOutput("status_nydoh")
 ### SF
 
 ```{r status_sf,context="server"}
-output$status_sf <- data_status_box(dataset$sfzipcode, "SF Testing by Zipcode", "SF")
+output$status_sf <- data_status_box(dataset$sfzipcode, "SF Testing by Zipcode", "San Francisco Dept. of Pub. H.")
 ```
 
 
@@ -792,7 +792,7 @@ valueBoxOutput("status_sf")
 ### Alameda
 
 ```{r status_alameda,context="server"}
-output$status_alameda <- data_status_box(dataset$alameda, "Alameda", "Alameda")
+output$status_alameda <- data_status_box(dataset$alameda, "Alameda", "Alameda County")
 ```
 
 
@@ -803,7 +803,7 @@ valueBoxOutput("status_alameda")
 ### Los Angeles Local
 
 ```{r status_la_server,context="server"}
-output$status_la <- data_status_box(dataset$los_angeles, "LA Local", "LA Local")
+output$status_la <- data_status_box(dataset$los_angeles, "LA Local", "Los Angeles Open Data")
 ```
 
 ```{r status_la}

@@ -1035,8 +1035,7 @@ observeEvent(input$worldview_click, label="worldmapclick", {
 ```{r world_case_summary,context="server",include=F}
 world_case_summary <- reactive(label="world_case_summary", {
   cases_input <- world_cases_jh()
-  click_state <- if (isTruthy(world_click_state())) world_click_state() 
-  else NA_real_
+  click_state <- world_click_state()
   
   (if (is.na(click_state)) {
     cases_input %>% 
@@ -1383,20 +1382,19 @@ observeEvent(input$usview_click, label="usmapclick", {
   
   if (nrow(out) == 0) {
     click_state_name("U.S.")
-    NA
+    region_click_state(NA)
   } else {
     name <- if_else(is.na(out$county[1]), out$state[1],
                     paste0(out$county[1], ", ", out$state[1]))
     click_state_name(name)
-    out
+    region_click_state(out)
   }
-} %>% region_click_state())
+})
 ```
 
 ```{r data_us_case_sumary,context="server",include=F}
 us_case_summary <- reactive(label="us_case_summary", {
-  click_state <- if (isTruthy(region_click_state())) region_click_state()
-  else NA
+  click_state <- region_click_state()
 
   (if (is.na(click_state)) {
     us_cases_state() %>% 
@@ -1756,7 +1754,7 @@ city_losangeles <- reactive(
 ```{r city_input,context="server",include=F}
 output$cityinputs <- renderUI({
   tagList(
-    shinyWidgets::radioGroupButtons(
+    radioGroupButtons(
       "cityselection", 
       label="Choose City", 
       choices=c("New York", "San Francisco", "Los Angeles"),

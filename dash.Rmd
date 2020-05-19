@@ -364,7 +364,7 @@ dataset$nyzipcode <- makePoll("NYC Testing by Zipcode", url_nyzipcode, process_n
 url_sfzipcode <- "https://data.sfgov.org/resource/favi-qct6.csv"
 
 process_sfzipcode <- function(x) x %>% 
-  select(date = data_as_of, zipcode=zip_code, cases=count_of_confirmed_cases) %>%
+  select(date = data_as_of, zipcode=zip_code, cases=count) %>%
   mutate(
     date = as.Date(date),
     recovered = NA,

@@ -538,7 +538,7 @@ get_vis_elements <- function(x, label) reactive(label=label, {
       pal = quote(log10(pop_density)),
       legend_bins = 5,
       legend_vals = quote(log10(ranges[["pop_density"]]$log_rng)),
-      legend_trans = labelFormat(transform=function(x) 10^x, suffix = " ppl / sqmi")
+      legend_trans = labelFormat(transform=function(x) round(10^x), suffix = " ppl / sqmi")
     ),
     "Active Cases" = list(
       field = "active_cases",
@@ -1413,6 +1413,7 @@ us_case_summary <- reactive(label="us_case_summary", {
            Hospitalized=hospitalized, ICU=icu, 
            Ventilator=vent, Recovered = recovered, 
            cum_negative, pending, negativeIncrease, cum_pos_rate, pos_rate_ma, 
+           Active = active_cases, 
            `New Cases` = cases_new, new_cases_ma, cases_growth_rate, cases_growth_rate_ma) 
   
 })
@@ -1421,7 +1422,7 @@ us_case_summary <- reactive(label="us_case_summary", {
 ```{r us_cumulative,context="server"}
 output$uscaseslinear <- renderHighchart(
   highchart() %>% 
-    hc_title(text=paste0("Cases, Hosp. and Deaths (", click_state_name(), ")")) %>%
+    hc_title(text=paste0("Cumulative (", click_state_name(), ")")) %>%
     hc_yAxis(title="", type=req(input$uslog), 
              min = if_else(isolate(input$uslog) == "linear", 0, 1)
              ) %>%
@@ -1430,7 +1431,7 @@ output$uscaseslinear <- renderHighchart(
       type="line",
       marker=list(enabled=F), 
       data=req(us_case_summary()) %>% 
-        select(date, Cases, Deaths, Hospitalized, ICU, Ventilator, Recovered) %>% 
+        select(date, Active, Cases, Deaths, Hospitalized, ICU, Ventilator, Recovered) %>% 
         gather(key="Series", value="val", -date) %>%
         filter(val > 0), 
       mapping=hcaes(x=date, y=val, group=Series)
@@ -1443,7 +1444,7 @@ output$uscaseslinear <- renderHighchart(
 ```{r us_daily_new_cases,context="server",include=F}
 output$usdailynewcases <- renderHighchart({
   highchart() %>% 
-    hc_title(text=paste0("Daily New Cases (", click_state_name(), ")")) %>%
+    hc_title(text=paste0("Daily New (", click_state_name(), ")")) %>%
     hc_xAxis(type="datetime") %>%
     hc_yAxis(title="", type=req(input$uslog), min=1) %>% 
     hc_add_series(type="column", 

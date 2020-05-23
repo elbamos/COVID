@@ -353,7 +353,8 @@ url_nyzipcode <- "https://raw.githubusercontent.com/nychealth/coronavirus-data/m
 process_nyzipcode <- function(x) x %>% 
   filter(! is.na(MODZCTA)) %>% 
   select(zipcode=MODZCTA, cases=Positive, total_tests=Total) %>%
-  mutate(recovered = NA, deaths=NA, date=Sys.Date())
+  mutate(recovered = NA, deaths=NA, date=Sys.Date(), 
+         cases = as.numeric(cases))
 
 
 dataset$nyzipcode <- makePoll("NYC Testing by Zipcode", url_nyzipcode, process_nyzipcode)

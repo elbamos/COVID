@@ -213,26 +213,26 @@ url_world_recovered <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-1
 process_jh_confirmed <- function(x) x %>% 
   inner_join(
     locations %>% 
-      select(`Province/State`=Sublocation, `Country/Region`=Location, loc_id)
+      select(`Province/State` = Sublocation, `Country/Region` = Location, loc_id)
   ) %>%
   select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
-  gather(key="date", value="cases", -loc_id)
+  gather(key = "date", value="cases", -loc_id)
 
 process_jh_dead <- function(x) x %>% 
   inner_join(
     locations %>% 
-      select(`Province/State`=Sublocation, `Country/Region`=Location, loc_id)
+      select(`Province/State` = Sublocation, `Country/Region` = Location, loc_id)
   ) %>%
   select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
-  gather(key="date", value="deaths", -loc_id)
+  gather(key = "date", value = "deaths", -loc_id)
 
 process_jh_recovered <- function(x) x %>% 
   inner_join(
     locations %>% 
-      select(`Province/State`=Sublocation, `Country/Region`=Location, loc_id)
+      select(`Province/State` = Sublocation, `Country/Region` = Location, loc_id)
   ) %>%
   select(loc_id, matches("[0-9]+.[0-9]+.[0-9]+")) %>% 
-  gather(key="date", value="recovered", -loc_id)
+  gather(key = "date", value = "recovered", -loc_id)
 
 dataset$confirmed <- makePoll("Confirmed Cases (JH)", url_world_confirmed, 
                               process_jh_confirmed) 
@@ -252,8 +252,8 @@ world_cases_jh <- reactive({
     ) %>%
     arrange(date) %>%
     mutate(
-      deaths_new = deaths - lag(deaths, 1, default=0),
-      cases_new = cases - lag(cases, 1, default=0), 
+      deaths_new = deaths - lag(deaths, 1, default = 0),
+      cases_new = cases - lag(cases, 1, default = 0), 
       pop = NA_real_, # Find pop later for more data!
       landsqmi = NA_real_,
       housing_units = NA_real_,
@@ -277,17 +277,17 @@ process_ny_county <- function(x) {
   x %>% 
     left_join(
       locations %>% 
-        select(county = Subsublocation, state=Sublocation, loc_id)
+        select(county = Subsublocation, state = Sublocation, loc_id)
     ) %>%
     select(-county, -state)
 }
 
 process_ny_state <- function(x) {
   x %>% 
-    filter(! state %in% c(78, 66)) %>% # Exclude virgin islands and guam
+    filter(!state %in% c(78, 66)) %>% # Exclude virgin islands and guam
     left_join(locations %>% 
                 filter(is.na(Subsublocation)) %>% 
-                select(state=Sublocation, loc_id)) %>% 
+                select(state = Sublocation, loc_id)) %>% 
     select(-state)
 }
 
@@ -309,23 +309,23 @@ process_covid_track <- function(x) x %>%
   mutate(
     date = ymd(date)
   ) %>% inner_join(
-    data.frame(state = state.abb, state_full=state.name)
+    data.frame(state = state.abb, state_full = state.name)
   ) %>% 
   select(-state) %>% 
-  rename(state=state_full) %>%
+  rename(state = state_full) %>%
   left_join(
-    locations %>% filter(is.na(Subsublocation)) %>% select(state=Sublocation, loc_id)
+    locations %>% filter(is.na(Subsublocation)) %>% select(state = Sublocation, loc_id)
   ) %>%
   group_by(date, loc_id) %>%
   summarize_if(is.integer, ~max(if_else(is.na(.), 0L, .))) %>%
   ungroup()
 
 dataset$covid_track <- reactivePoll(
-  intervalMillis = params$updateFreq, session=NULL,
+  intervalMillis = params$updateFreq, session = NULL,
   checkFunc = function() get_url_date(url_covid_track),
-  valueFunc = function() get_new_data_json(tag="COVID Track", 
-                                           url=url_covid_track, 
-                                           f=process_covid_track)
+  valueFunc = function() get_new_data_json(tag = "COVID Track", 
+                                           url = url_covid_track, 
+                                           f = process_covid_track)
 )
 ```
 
@@ -365,7 +365,7 @@ dataset$nyzipcode <- makePoll("NYC Testing by Zipcode", url_nyzipcode, process_n
 url_sfzipcode <- "https://data.sfgov.org/resource/favi-qct6.csv"
 
 process_sfzipcode <- function(x) x %>% 
-  select(date = data_as_of, zipcode=zip_code, cases=count) %>%
+  select(date = data_as_of, zipcode = zip_code, cases = count) %>%
   mutate(
     date = as.Date(date),
     recovered = NA,
@@ -376,25 +376,26 @@ dataset$sfzipcode <- makePoll("SF Testing by Zipcode",
                               url_sfzipcode, 
                               process_sfzipcode)
 
-url_alameda <- "https://services3.arcgis.com/1iDJcsklY3l3KIjE/arcgis/rest/services/Alameda_County_COVID-19_Zip_Code_Data/FeatureServer/0/query?where=1%3D1&outFields=Zip,Count&outSR=4326&f=json"
+url_alameda <- "https://opendata.arcgis.com/datasets/e9ed9fa8d5d54d0e80dbfb95b2e142f5_0.csv" 
 
-process_alameda <- function(x) x$features$attributes %>% 
-  set_colnames(c("zipcode", "cases")) %>%
+#"https://opendata.arcgis.com/datasets/e9ed9fa8d5d54d0e80dbfb95b2e142f5_0.geojson"
+
+process_alameda <- function(x) x %>% 
+  select(DtCreate, matches("F[0-9]+")) %>% 
+  gather(key = "zipcode", value = "cases", -DtCreate) %>% 
   mutate(
+    date = as.Date(ymd_hms(DtCreate)),
+    zipcode = as.numeric(str_match(zipcode, "F([0-9]+)")[, 2]),
     cases = case_when(
-      str_starts(cases, "<") ~ 10, 
+      str_detect(cases, "<") ~ 5, 
       TRUE ~ as.numeric(cases)
-    ),
-    date = Sys.Date()
-  )
+    )
+  ) %>% 
+  group_by(zipcode) %>% filter(date == max(date)) %>% ungroup() %>% select(zipcode, cases)
 
-dataset$alameda <- reactivePoll(
-  intervalMillis = params$updateFreq, session=NULL,
-  checkFunc = function() get_url_date(url_alameda),
-  valueFunc = function() get_new_data_json(tag="Alameda", 
-                                           url=url_alameda, 
-                                           f=process_alameda)
-)
+dataset$alameda <- makePoll("Alameda", 
+                              url_alameda, 
+                              process_alameda)
 ```
 
 ```{r data_la,context="server-start",include=F}
@@ -977,19 +978,19 @@ set_world_click_name <- function(new_loc_id) {
     ) %>%
     use_series(name) %>%
     world_click_name()
-  
+
   new_loc_id
 }
 
 match_geoms <- function(click, geoms) {
   lat <- click$lat
   lng <- click$lng
-  
+
   target <- st_point(x=c(lng, lat), dim=c("XY"))
-    
+  
   geoms %>%
     filter(map_lgl(bbox, ~ between(target[1], .x$xmin, .x$xmax) & between(target[2], .x$ymin, .x$ymax))) %>% 
-    filter(st_within(target, geometry, sparse=F, prepared=F)) 
+    filter(st_within(target, geometry, sparse=F, prepared=F))
 }
 
 match_circles <- function(click) {
@@ -1015,6 +1016,8 @@ world_click_state <- reactiveVal(NA)
 observeEvent(input$worldview_click, label="worldmapclick", {
   {
     poly_match <- match_geoms(input$worldview_click, isolate(world_geoms))
+    
+    print("got geoms")
     
     if (nrow(poly_match) > 0) {
       out <- poly_match$loc_id[1]
